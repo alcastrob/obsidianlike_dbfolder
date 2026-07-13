@@ -1,0 +1,69 @@
+{
+  "name": "obsidianlike-dbfolder",
+  "displayName": "Obsidian-like DB Folder",
+  "description": "Notion/Obsidian dbfolder-style database views (Table, Board, List, Gallery) over a folder of Markdown files with YAML frontmatter.",
+  "version": "0.1.0",
+  "publisher": "angelCastro",
+  "private": true,
+  "icon": "media/obsidian-icon-violeta.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "mdDbFolder.openDatabaseView",
+        "title": "DB Folder: Open Database View",
+        "icon": "$(table)"
+      },
+      {
+        "command": "mdDbFolder.refresh",
+        "title": "DB Folder: Refresh View",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "mdDbFolder.openDatabaseView",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "mdDbFolder.openDatabaseView"
+        },
+        {
+          "command": "mdDbFolder.refresh"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "check-types": "tsc --noEmit -p ./",
+    "vscode:prepublish": "npm run compile",
+    "package": "npm run compile && vsce package --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "gray-matter": "^4.0.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  }
+}
