@@ -32,10 +32,23 @@ export function activate(context: vscode.ExtensionContext): void {
   vscode.workspace.textDocuments.forEach((doc) => switchToDatabaseEditorIfNeeded(doc));
 }
 
-function switchToDatabaseEditorIfNeeded(doc: vscode.TextDocument): void {
+async function switchToDatabaseEditorIfNeeded(doc: vscode.TextDocument): Promise<void> {
   if (!doc.fileName.toLowerCase().endsWith(".md")) return;
   if (!isDatabaseNote(doc.getText())) return;
-  vscode.commands.executeCommand("vscode.openWith", doc.uri, DATABASE_NOTE_EDITOR_VIEW_TYPE);
+
+  await vscode.commands.executeCommand("vscode.openWith", doc.uri, DATABASE_NOTE_EDITOR_VIEW_TYPE);
+
+  // vscode.openWith doesn't reliably replace a plain-text tab that was already
+  // opening for the same document (a race with VS Code's own default-open flow),
+  // leaving both the raw-text tab and our custom-editor tab open. Close the
+  // leftover text tab for this URI, if any.
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      if (tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === doc.uri.toString()) {
+        await vscode.window.tabGroups.close(tab);
+      }
+    }
+  }
 }
 
 async function resolveFolderPath(uri?: vscode.Uri): Promise<string | undefined> {
