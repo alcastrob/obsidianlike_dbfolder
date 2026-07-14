@@ -8,7 +8,18 @@ import * as path from "path";
 import { ColumnDef, DbFolderConfig, PropertyType, SelectOption, ViewDef } from "./types";
 import { defaultConfig } from "./configStore";
 
-const BLOCK_RE = /```yaml:dbfolder\r?\n([\s\S]*?)```/;
+// Trailing whitespace on the fence line (common in notes exported with hard line
+// breaks, e.g. Obsidian's "  " end-of-line marker) must not prevent a match.
+const BLOCK_RE = /```yaml:dbfolder[ \t]*\r?\n([\s\S]*?)```/;
+
+// Some real-world notes end up with U+00A0 (non-breaking space) as indentation
+// instead of regular spaces (an artifact of certain editors/export paths). YAML
+// indentation must be plain spaces, so js-yaml fails to parse the block's actual
+// nesting otherwise - normalize before parsing.
+const NBSP = String.fromCharCode(160);
+function normalizeIndentation(yamlText: string): string {
+  return yamlText.split(NBSP).join(" ");
+}
 
 export interface LegacySelectOption {
   label?: string;
@@ -59,7 +70,7 @@ export function extractLegacyBlock(content: string): LegacyDbFolderRaw | undefin
   const match = BLOCK_RE.exec(content);
   if (!match) return undefined;
   try {
-    const raw = yaml.load(match[1]) as LegacyDbFolderRaw;
+    const raw = yaml.load(normalizeIndentation(match[1])) as LegacyDbFolderRaw;
     if (!raw || typeof raw !== "object" || !raw.columns) return undefined;
     return raw;
   } catch {
