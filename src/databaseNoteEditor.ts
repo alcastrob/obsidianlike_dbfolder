@@ -15,6 +15,26 @@ import { buildWebviewHtml, DatabaseHost } from "./databaseHost";
 
 export const DATABASE_NOTE_EDITOR_VIEW_TYPE = "mdDbFolder.databaseNoteEditor";
 
+/**
+ * vscode.workspace.getWorkspaceFolder() can fail to match a document that is
+ * genuinely inside the open workspace folder when the two URIs' Unicode
+ * normalization or casing differ (observed with accented folder names synced
+ * via Dropbox on Windows). Fall back to the single workspace folder when
+ * there's exactly one, and otherwise to a normalized prefix match.
+ */
+function resolveWorkspaceRoot(uri: vscode.Uri): string | undefined {
+  const direct = vscode.workspace.getWorkspaceFolder(uri);
+  if (direct) return direct.uri.fsPath;
+
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) return undefined;
+  if (folders.length === 1) return folders[0].uri.fsPath;
+
+  const target = uri.fsPath.normalize("NFC").toLowerCase();
+  const match = folders.find((f) => target.startsWith(f.uri.fsPath.normalize("NFC").toLowerCase()));
+  return match?.uri.fsPath;
+}
+
 export function registerDatabaseNoteEditor(context: vscode.ExtensionContext): vscode.Disposable {
   return vscode.window.registerCustomEditorProvider(
     DATABASE_NOTE_EDITOR_VIEW_TYPE,
@@ -75,7 +95,7 @@ class NoteDatabaseHost extends DatabaseHost {
     super(legacyToInternalConfig(raw));
     this.raw = raw;
     this.noteDir = path.dirname(document.uri.fsPath);
-    this.workspaceRoot = vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath;
+    this.workspaceRoot = resolveWorkspaceRoot(document.uri);
   }
 
   watchRowFolder(): vscode.Disposable | undefined {
