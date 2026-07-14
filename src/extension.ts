@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 import { DbFolderPanel } from "./dbFolderPanel";
+import { DATABASE_NOTE_EDITOR_VIEW_TYPE, registerDatabaseNoteEditor } from "./databaseNoteEditor";
+import { isDatabaseNote } from "./core/legacyDbFolder";
 
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
@@ -15,8 +17,25 @@ export function activate(context: vscode.ExtensionContext): void {
       const folderPath = await resolveFolderPath(uri);
       if (!folderPath) return;
       DbFolderPanel.refresh(folderPath);
-    })
+    }),
+    vscode.commands.registerCommand("mdDbFolder.openNoteSource", async () => {
+      const uri = vscode.window.activeTextEditor?.document.uri;
+      if (!uri) return;
+      await vscode.commands.executeCommand("vscode.openWith", uri, "default");
+    }),
+    registerDatabaseNoteEditor(context),
+    vscode.workspace.onDidOpenTextDocument((doc) => switchToDatabaseEditorIfNeeded(doc))
   );
+
+  // Tabs restored from a previous session open before onStartupFinished fires, so
+  // onDidOpenTextDocument above never sees them — sweep already-open documents too.
+  vscode.workspace.textDocuments.forEach((doc) => switchToDatabaseEditorIfNeeded(doc));
+}
+
+function switchToDatabaseEditorIfNeeded(doc: vscode.TextDocument): void {
+  if (!doc.fileName.toLowerCase().endsWith(".md")) return;
+  if (!isDatabaseNote(doc.getText())) return;
+  vscode.commands.executeCommand("vscode.openWith", doc.uri, DATABASE_NOTE_EDITOR_VIEW_TYPE);
 }
 
 async function resolveFolderPath(uri?: vscode.Uri): Promise<string | undefined> {

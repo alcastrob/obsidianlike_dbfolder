@@ -12,7 +12,7 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": ["onStartupFinished"],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -25,6 +25,10 @@
         "command": "mdDbFolder.refresh",
         "title": "DB Folder: Refresh View",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "mdDbFolder.openNoteSource",
+        "title": "DB Folder: Open Note Source (Plain Text)"
       }
     ],
     "menus": {
@@ -41,9 +45,20 @@
         },
         {
           "command": "mdDbFolder.refresh"
+        },
+        {
+          "command": "mdDbFolder.openNoteSource"
         }
       ]
-    }
+    },
+    "customEditors": [
+      {
+        "viewType": "mdDbFolder.databaseNoteEditor",
+        "displayName": "DB Folder: Database Note",
+        "selector": [{ "filenamePattern": "*.md" }],
+        "priority": "option"
+      }
+    ]
   },
   "scripts": {
     "compile": "node esbuild.js",
@@ -53,6 +68,7 @@
     "package": "npm run compile && vsce package --allow-missing-repository"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.11.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
@@ -63,6 +79,7 @@
   },
   "dependencies": {
     "gray-matter": "^4.0.3",
+    "js-yaml": "^4.3.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   }

@@ -8,7 +8,7 @@ import { DbFolderConfig, RowData } from "./types";
 
 const RESERVED_KEYS = new Set(["$name", "$path", "$ctime", "$mtime"]);
 
-function listMarkdownFiles(folderPath: string, recursive: boolean): string[] {
+export function listMarkdownFiles(folderPath: string, recursive: boolean): string[] {
   const results: string[] = [];
   const entries = fs.readdirSync(folderPath, { withFileTypes: true });
   for (const entry of entries) {
@@ -24,21 +24,21 @@ function listMarkdownFiles(folderPath: string, recursive: boolean): string[] {
 }
 
 /**
- * Scans the folder, updates `config.columns` in-place with any newly
- * discovered frontmatter properties/select-options, and returns the row data.
- * Mutates and returns a new config object (immutable-style) alongside the rows.
+ * Reads `files`, updates `config.columns` in-place with any newly discovered
+ * frontmatter properties/select-options, and returns the row data. Shared by
+ * folder-scan mode and query-mode (an explicit, externally-resolved file list).
  */
-export function scanFolder(
-  folderPath: string,
+export function buildRowsFromFiles(
+  files: string[],
   config: DbFolderConfig
 ): { config: DbFolderConfig; rows: RowData[] } {
-  const files = listMarkdownFiles(folderPath, config.recursive);
   let columns = [...config.columns];
   const columnByKey = new Map(columns.map((c) => [c.key, c]));
 
   const rawRows: { filePath: string; fileName: string; data: Record<string, unknown> }[] = [];
 
   for (const filePath of files) {
+    if (!fs.existsSync(filePath)) continue;
     const { data: rawData } = readNote(filePath);
     const data: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(rawData)) {
@@ -84,4 +84,13 @@ export function scanFolder(
   });
 
   return { config: syncViewColumnOrders({ ...config, columns }), rows };
+}
+
+/** Scans a folder (optionally recursive) and builds rows/columns from its .md files. */
+export function scanFolder(
+  folderPath: string,
+  config: DbFolderConfig
+): { config: DbFolderConfig; rows: RowData[] } {
+  const files = listMarkdownFiles(folderPath, config.recursive);
+  return buildRowsFromFiles(files, config);
 }
