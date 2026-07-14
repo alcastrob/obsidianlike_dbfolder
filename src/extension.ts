@@ -38,13 +38,22 @@ async function switchToDatabaseEditorIfNeeded(doc: vscode.TextDocument): Promise
 
   await vscode.commands.executeCommand("vscode.openWith", doc.uri, DATABASE_NOTE_EDITOR_VIEW_TYPE);
 
-  // vscode.openWith doesn't reliably replace a plain-text tab that was already
-  // opening for the same document (a race with VS Code's own default-open flow),
-  // leaving both the raw-text tab and our custom-editor tab open. Close the
-  // leftover text tab for this URI, if any.
+  // vscode.openWith doesn't reliably replace whatever editor was already opening
+  // for this document (a race with VS Code's own default-open flow, or with
+  // another extension's custom editor also registered as default for *.md),
+  // leaving a second tab open alongside ours. Close any other tab for this URI.
+  // Skip it if the document is dirty: closing a dirty tab prompts a save dialog,
+  // and we'd rather leave a stray tab open than pop that dialog ourselves.
+  if (doc.isDirty) return;
   for (const group of vscode.window.tabGroups.all) {
     for (const tab of group.tabs) {
-      if (tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === doc.uri.toString()) {
+      const input = tab.input;
+      const isOtherEditorForSameDoc =
+        (input instanceof vscode.TabInputText && input.uri.toString() === doc.uri.toString()) ||
+        (input instanceof vscode.TabInputCustom &&
+          input.uri.toString() === doc.uri.toString() &&
+          input.viewType !== DATABASE_NOTE_EDITOR_VIEW_TYPE);
+      if (isOtherEditorForSameDoc) {
         await vscode.window.tabGroups.close(tab);
       }
     }
