@@ -140,7 +140,11 @@ export abstract class DatabaseHost {
           await this.sendSnapshot();
           return;
         case "openRow":
-          await vscode.window.showTextDocument(vscode.Uri.file(msg.filePath), { preview: false });
+          // showTextDocument always forces the plain text editor, bypassing any
+          // registered custom editor (e.g. a WYSIWYG markdown editor set as the
+          // default for *.md). vscode.open instead resolves the same way a
+          // double-click in the Explorer would, respecting that association.
+          await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(msg.filePath), { preview: false });
           return;
         case "addView":
           await this.mutateConfig({ ...this.config, views: [...this.config.views, msg.view] });

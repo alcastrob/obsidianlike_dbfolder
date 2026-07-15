@@ -5,7 +5,13 @@ function toComparable(value: unknown): string | number {
   if (typeof value === "boolean") return value ? 1 : 0;
   if (Array.isArray(value)) return value.join(", ").toLowerCase();
   if (value === undefined || value === null) return "";
-  return String(value).toLowerCase();
+  // Filter values always arrive as strings (typed into a text input), so a
+  // checkbox cell (a real boolean, coerced to 1/0 above) can never match a
+  // typed "true"/"false" unless string inputs get the same treatment here.
+  const str = String(value).trim().toLowerCase();
+  if (str === "true") return 1;
+  if (str === "false") return 0;
+  return str;
 }
 
 function matchesFilter(row: RowData, filter: FilterRule): boolean {
