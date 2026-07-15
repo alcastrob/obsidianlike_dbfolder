@@ -45,6 +45,18 @@ export function PropertyCell({
     );
   }
 
+  if (column.type === "filePath") {
+    return (
+      <span
+        className="cell-readonly cell-filelink"
+        title={row.filePath}
+        onClick={() => post({ type: "openRow", filePath: row.filePath })}
+      >
+        {formatDisplay(column, value) || row.fileName}
+      </span>
+    );
+  }
+
   if (readOnly) {
     return <span className="cell-readonly">{formatDisplay(column, value)}</span>;
   }

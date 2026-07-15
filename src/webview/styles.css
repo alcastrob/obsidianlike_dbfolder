@@ -189,6 +189,11 @@ input, select {
 .cell-text, .cell-tags { min-height: 20px; cursor: text; }
 .cell-empty { opacity: 0.4; font-style: italic; }
 .cell-readonly { opacity: 0.7; }
+.cell-filelink {
+  cursor: pointer;
+  color: var(--vscode-textLink-foreground, #3794ff);
+}
+.cell-filelink:hover { text-decoration: underline; }
 
 .tag-chip {
   display: inline-block;
