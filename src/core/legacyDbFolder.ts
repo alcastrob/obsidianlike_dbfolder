@@ -166,7 +166,8 @@ export type LegacySource =
 export function resolveLegacySource(
   raw: LegacyDbFolderRaw,
   noteDir: string,
-  workspaceRoot: string | undefined
+  workspaceRoot: string | undefined,
+  recursive = false
 ): LegacySource {
   const cfg = raw.config ?? {};
   if (cfg.source_data === "query" && typeof cfg.source_form_result === "string" && cfg.source_form_result.trim()) {
@@ -174,7 +175,7 @@ export function resolveLegacySource(
   }
   const destPath = typeof cfg.source_destination_path === "string" ? cfg.source_destination_path : undefined;
   const folderPath = destPath && workspaceRoot ? path.join(workspaceRoot, destPath) : noteDir;
-  return { mode: "folder", folderPath, recursive: false };
+  return { mode: "folder", folderPath, recursive };
 }
 
 function defaultTableView(columnOrder: string[]): ViewDef {

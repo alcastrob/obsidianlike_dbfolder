@@ -78,10 +78,20 @@ export interface RowData {
   values: Record<string, unknown>; // columnKey -> value (frontmatter values + synthetic file props)
 }
 
+// Present only for note-backed databases (a note with an embedded ```yaml:dbfolder
+// block). Lets the UI show/edit the row source without opening the raw file.
+export interface DatabaseSourceInfo {
+  mode: "folder" | "query";
+  folderPath?: string; // workspace-relative; folder-mode's row folder, or query-mode's destination for new rows
+  recursive?: boolean; // folder mode only
+  queryFilter?: string; // query mode only, e.g. FROM "..." WHERE ...
+}
+
 export interface DatabaseSnapshot {
   folderPath: string;
   config: DbFolderConfig;
   rows: RowData[];
+  sourceInfo?: DatabaseSourceInfo;
 }
 
 // ---- Webview <-> Extension message protocol ----
@@ -106,4 +116,5 @@ export type WebviewToHostMessage =
   | { type: "deleteView"; viewId: string }
   | { type: "setActiveView"; viewId: string }
   | { type: "setRecursive"; recursive: boolean }
+  | { type: "updateDatabaseSource"; source: DatabaseSourceInfo }
   | { type: "refresh" };

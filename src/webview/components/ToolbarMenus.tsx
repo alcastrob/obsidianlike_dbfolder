@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ColumnDef,
   DatabaseSnapshot,
+  DatabaseSourceInfo,
   FilterRule,
   PropertyType,
   SortRule,
@@ -255,6 +256,100 @@ export function SortMenu({
   );
 }
 
+/**
+ * Editable source-config section for note-backed databases (a note with an
+ * embedded ```yaml:dbfolder block) - lets the user change source_data,
+ * source_destination_path and source_form_result without opening raw text.
+ * Not based on the original plugin's actual dialog (no way to see it here) -
+ * built from the config fields the parser already understands.
+ */
+function DatabaseSourceSection({ sourceInfo }: { sourceInfo: DatabaseSourceInfo }): JSX.Element {
+  const [mode, setMode] = useState<DatabaseSourceInfo["mode"]>(sourceInfo.mode);
+  const [folderPath, setFolderPath] = useState(sourceInfo.folderPath ?? "");
+  const [recursive, setRecursive] = useState(Boolean(sourceInfo.recursive));
+  const [queryFilter, setQueryFilter] = useState(sourceInfo.queryFilter ?? "");
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (dirty) return; // don't clobber in-progress edits when a new snapshot arrives
+    setMode(sourceInfo.mode);
+    setFolderPath(sourceInfo.folderPath ?? "");
+    setRecursive(Boolean(sourceInfo.recursive));
+    setQueryFilter(sourceInfo.queryFilter ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceInfo.mode, sourceInfo.folderPath, sourceInfo.recursive, sourceInfo.queryFilter]);
+
+  const markDirty = <T,>(setter: (v: T) => void) => (v: T) => {
+    setter(v);
+    setDirty(true);
+  };
+
+  const save = () => {
+    post({
+      type: "updateDatabaseSource",
+      source: {
+        mode,
+        folderPath: folderPath.trim() || undefined,
+        recursive,
+        queryFilter: queryFilter.trim() || undefined,
+      },
+    });
+    setDirty(false);
+  };
+
+  return (
+    <div className="db-source-section">
+      <div className="menu-section-title">Database source</div>
+      <label className="menu-row">
+        <span>Source</span>
+        <select value={mode} onChange={(e) => markDirty(setMode)(e.target.value as DatabaseSourceInfo["mode"])}>
+          <option value="folder">Folder</option>
+          <option value="query">Query</option>
+        </select>
+      </label>
+      {mode === "folder" ? (
+        <>
+          <label className="menu-row">
+            <span>Folder</span>
+            <input
+              value={folderPath}
+              onChange={(e) => markDirty(setFolderPath)(e.target.value)}
+              placeholder="e.g. 10_SNPT/Topics (relative to the vault root)"
+            />
+          </label>
+          <label className="menu-row">
+            <span>Include subfolders</span>
+            <input type="checkbox" checked={recursive} onChange={(e) => markDirty(setRecursive)(e.target.checked)} />
+          </label>
+        </>
+      ) : (
+        <>
+          <label className="menu-col">
+            <span>Query</span>
+            <textarea
+              rows={4}
+              value={queryFilter}
+              onChange={(e) => markDirty(setQueryFilter)(e.target.value)}
+              placeholder='FROM "folder" WHERE property = "value"'
+            />
+          </label>
+          <label className="menu-row">
+            <span>New notes folder</span>
+            <input
+              value={folderPath}
+              onChange={(e) => markDirty(setFolderPath)(e.target.value)}
+              placeholder="e.g. 10_SNPT/Topics (relative to the vault root)"
+            />
+          </label>
+        </>
+      )}
+      <button onClick={save} disabled={!dirty}>
+        Save source
+      </button>
+    </div>
+  );
+}
+
 export function ViewSettingsMenu({
   snapshot,
   view,
@@ -321,14 +416,17 @@ export function ViewSettingsMenu({
               </select>
             </label>
           )}
-          <label className="menu-row">
-            <span>Include subfolders</span>
-            <input
-              type="checkbox"
-              checked={snapshot.config.recursive}
-              onChange={(e) => post({ type: "setRecursive", recursive: e.target.checked })}
-            />
-          </label>
+          {!snapshot.sourceInfo && (
+            <label className="menu-row">
+              <span>Include subfolders</span>
+              <input
+                type="checkbox"
+                checked={snapshot.config.recursive}
+                onChange={(e) => post({ type: "setRecursive", recursive: e.target.checked })}
+              />
+            </label>
+          )}
+          {snapshot.sourceInfo && <DatabaseSourceSection sourceInfo={snapshot.sourceInfo} />}
           {snapshot.config.views.length > 1 && (
             <button
               className="danger"

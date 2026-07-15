@@ -9,7 +9,7 @@ import {
   resolveLegacySource,
 } from "./core/legacyDbFolder";
 import { buildRowsFromFiles, scanFolder } from "./core/scanner";
-import { DbFolderConfig, RowData } from "./core/types";
+import { DatabaseSourceInfo, DbFolderConfig, RowData } from "./core/types";
 import { resolveQueryFiles } from "./dataviewBridge";
 import { buildWebviewHtml, DatabaseHost } from "./databaseHost";
 
@@ -99,7 +99,7 @@ class NoteDatabaseHost extends DatabaseHost {
   }
 
   watchRowFolder(): vscode.Disposable | undefined {
-    const source = resolveLegacySource(this.raw, this.noteDir, this.workspaceRoot);
+    const source = resolveLegacySource(this.raw, this.noteDir, this.workspaceRoot, this.config.recursive);
     if (source.mode !== "folder") return undefined;
     const watcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(source.folderPath, source.recursive ? "**/*.md" : "*.md")
@@ -116,17 +116,45 @@ class NoteDatabaseHost extends DatabaseHost {
   }
 
   protected getRowCreationFolder(): string | undefined {
-    const source = resolveLegacySource(this.raw, this.noteDir, this.workspaceRoot);
+    const source = resolveLegacySource(this.raw, this.noteDir, this.workspaceRoot, this.config.recursive);
     if (source.mode === "folder") return source.folderPath;
     const dest = this.raw.config?.source_destination_path;
     return dest && this.workspaceRoot ? path.join(this.workspaceRoot, dest) : undefined;
+  }
+
+  protected getSourceInfo(): DatabaseSourceInfo {
+    const cfg = this.raw.config ?? {};
+    const mode = cfg.source_data === "query" ? "query" : "folder";
+    return {
+      mode,
+      folderPath: typeof cfg.source_destination_path === "string" ? cfg.source_destination_path : "",
+      recursive: this.config.recursive,
+      queryFilter: typeof cfg.source_form_result === "string" ? cfg.source_form_result : "",
+    };
+  }
+
+  protected async updateDatabaseSource(source: DatabaseSourceInfo): Promise<void> {
+    const nextRaw: LegacyDbFolderRaw = {
+      ...this.raw,
+      config: {
+        ...this.raw.config,
+        source_data: source.mode,
+        source_destination_path: source.folderPath || undefined,
+        source_form_result: source.mode === "query" ? source.queryFilter || undefined : this.raw.config?.source_form_result,
+      },
+    };
+    if (source.mode === "folder" && typeof source.recursive === "boolean" && source.recursive !== this.config.recursive) {
+      this.config = { ...this.config, recursive: source.recursive };
+    }
+    await this.applyRawEdit(nextRaw);
+    this.onConfigPersisted();
   }
 
   protected async resolveRows(config: DbFolderConfig): Promise<{ config: DbFolderConfig; rows: RowData[] }> {
     const latest = extractLegacyBlock(this.document.getText());
     if (latest) this.raw = latest;
 
-    const source = resolveLegacySource(this.raw, this.noteDir, this.workspaceRoot);
+    const source = resolveLegacySource(this.raw, this.noteDir, this.workspaceRoot, config.recursive);
     if (source.mode === "folder") {
       return scanFolder(source.folderPath, config);
     }
@@ -141,9 +169,12 @@ class NoteDatabaseHost extends DatabaseHost {
   }
 
   protected async persistConfig(config: DbFolderConfig): Promise<void> {
-    const updatedRaw = internalConfigToLegacy(this.raw, config);
-    this.raw = updatedRaw;
-    const newText = replaceLegacyBlock(this.document.getText(), updatedRaw);
+    await this.applyRawEdit(internalConfigToLegacy(this.raw, config));
+  }
+
+  private async applyRawEdit(nextRaw: LegacyDbFolderRaw): Promise<void> {
+    this.raw = nextRaw;
+    const newText = replaceLegacyBlock(this.document.getText(), nextRaw);
     if (newText === this.document.getText()) return;
 
     const edit = new vscode.WorkspaceEdit();

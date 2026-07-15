@@ -137,6 +137,32 @@ input, select {
   padding-top: 6px;
 }
 
+.db-source-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  border-top: 1px solid var(--vscode-widget-border, #444);
+  padding-top: 6px;
+}
+.menu-section-title {
+  font-weight: 600;
+  font-size: 0.9em;
+  opacity: 0.8;
+}
+.menu-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.menu-col textarea {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.9em;
+  resize: vertical;
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .col-label { flex: 1; font-weight: 600; }
 .col-type { opacity: 0.6; font-size: 0.9em; }
 

@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { upsertColumn, removeColumn } from "./core/configStore";
 import { writeFrontmatter, createNote } from "./core/frontmatter";
-import { DatabaseSnapshot, DbFolderConfig, RowData, WebviewToHostMessage } from "./core/types";
+import { DatabaseSnapshot, DatabaseSourceInfo, DbFolderConfig, RowData, WebviewToHostMessage } from "./core/types";
 
 export function getNonce(): string {
   let text = "";
@@ -55,6 +55,14 @@ export abstract class DatabaseHost {
   protected abstract persistConfig(config: DbFolderConfig): void | Promise<void>;
   /** Hook for subclasses that need to react to config changes (e.g. recreate a file watcher). */
   protected onConfigPersisted(): void {}
+  /** Only note-backed databases have an editable row source; folder-backed panels leave this undefined. */
+  protected getSourceInfo(): DatabaseSourceInfo | undefined {
+    return undefined;
+  }
+  /** Only note-backed databases support editing their source; no-op otherwise. */
+  protected async updateDatabaseSource(_source: DatabaseSourceInfo): Promise<void> {
+    // no-op by default
+  }
 
   protected async buildSnapshot(): Promise<DatabaseSnapshot> {
     const before = JSON.stringify({ columns: this.config.columns, views: this.config.views });
@@ -65,7 +73,7 @@ export abstract class DatabaseHost {
       await this.persistConfig(this.config);
       this.onConfigPersisted();
     }
-    return { folderPath: this.getRowCreationFolder() ?? "", config: this.config, rows };
+    return { folderPath: this.getRowCreationFolder() ?? "", config: this.config, rows, sourceInfo: this.getSourceInfo() };
   }
 
   async sendSnapshot(): Promise<void> {
@@ -174,6 +182,10 @@ export abstract class DatabaseHost {
           return;
         case "setRecursive":
           await this.mutateConfig({ ...this.config, recursive: msg.recursive });
+          await this.sendSnapshot();
+          return;
+        case "updateDatabaseSource":
+          await this.updateDatabaseSource(msg.source);
           await this.sendSnapshot();
           return;
         case "refresh":
