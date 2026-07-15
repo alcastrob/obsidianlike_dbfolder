@@ -24,40 +24,82 @@ export function activate(context: vscode.ExtensionContext): void {
       await vscode.commands.executeCommand("vscode.openWith", uri, "default");
     }),
     registerDatabaseNoteEditor(context),
-    vscode.workspace.onDidOpenTextDocument((doc) => switchToDatabaseEditorIfNeeded(doc))
+    // onDidOpenTextDocument only fires the *first* time a document loads into
+    // memory - clicking an already-open database note again in the Explorer
+    // doesn't refire it (VS Code reuses the same TextDocument), so a second
+    // click's new preview tab would never get redirected. Tab-open events fire
+    // for every new tab regardless, which is the signal we actually need.
+    vscode.window.tabGroups.onDidChangeTabs((e) => {
+      for (const tab of e.opened) handleTabOpened(tab);
+    })
   );
 
-  // Tabs restored from a previous session open before onStartupFinished fires, so
-  // onDidOpenTextDocument above never sees them — sweep already-open documents too.
-  vscode.workspace.textDocuments.forEach((doc) => switchToDatabaseEditorIfNeeded(doc));
+  // Tabs already open when the extension activates (restored session, or a
+  // window reload) predate the listener above - sweep them too.
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) handleTabOpened(tab);
+  }
 }
 
-async function switchToDatabaseEditorIfNeeded(doc: vscode.TextDocument): Promise<void> {
-  if (!doc.fileName.toLowerCase().endsWith(".md")) return;
+function tabUri(tab: vscode.Tab): vscode.Uri | undefined {
+  const input = tab.input;
+  if (input instanceof vscode.TabInputText) return input.uri;
+  if (input instanceof vscode.TabInputCustom) return input.uri;
+  return undefined;
+}
+
+function isOurTab(tab: vscode.Tab, uri: vscode.Uri): boolean {
+  const input = tab.input;
+  return (
+    input instanceof vscode.TabInputCustom &&
+    input.viewType === DATABASE_NOTE_EDITOR_VIEW_TYPE &&
+    input.uri.toString() === uri.toString()
+  );
+}
+
+async function handleTabOpened(tab: vscode.Tab): Promise<void> {
+  const uri = tabUri(tab);
+  if (!uri || !uri.fsPath.toLowerCase().endsWith(".md")) return;
+  if (isOurTab(tab, uri)) return;
+
+  // Already open elsewhere with our editor: this new tab is a duplicate (e.g. a
+  // fresh Explorer-click preview tab) - close it and focus the existing one.
+  const existing = findOurTabForUri(uri, tab);
+  if (existing) {
+    await vscode.window.tabGroups.close(tab);
+    await vscode.commands.executeCommand("vscode.openWith", uri, DATABASE_NOTE_EDITOR_VIEW_TYPE, existing.group.viewColumn);
+    return;
+  }
+
+  let doc: vscode.TextDocument;
+  try {
+    doc = await vscode.workspace.openTextDocument(uri);
+  } catch {
+    return;
+  }
   if (!isDatabaseNote(doc.getText())) return;
 
-  await vscode.commands.executeCommand("vscode.openWith", doc.uri, DATABASE_NOTE_EDITOR_VIEW_TYPE);
+  await vscode.commands.executeCommand("vscode.openWith", uri, DATABASE_NOTE_EDITOR_VIEW_TYPE, tab.group.viewColumn);
 
-  // vscode.openWith doesn't reliably replace whatever editor was already opening
-  // for this document (a race with VS Code's own default-open flow, or with
-  // another extension's custom editor also registered as default for *.md),
-  // leaving a second tab open alongside ours. Close any other tab for this URI.
-  // Skip it if the document is dirty: closing a dirty tab prompts a save dialog,
-  // and we'd rather leave a stray tab open than pop that dialog ourselves.
-  if (doc.isDirty) return;
+  // Close any other tab left open for this document by the race with VS Code's
+  // own default-open flow (or another extension's default editor for *.md).
   for (const group of vscode.window.tabGroups.all) {
-    for (const tab of group.tabs) {
-      const input = tab.input;
-      const isOtherEditorForSameDoc =
-        (input instanceof vscode.TabInputText && input.uri.toString() === doc.uri.toString()) ||
-        (input instanceof vscode.TabInputCustom &&
-          input.uri.toString() === doc.uri.toString() &&
-          input.viewType !== DATABASE_NOTE_EDITOR_VIEW_TYPE);
-      if (isOtherEditorForSameDoc) {
-        await vscode.window.tabGroups.close(tab);
+    for (const other of group.tabs) {
+      const otherUri = tabUri(other);
+      if (otherUri && otherUri.toString() === uri.toString() && !isOurTab(other, uri)) {
+        await vscode.window.tabGroups.close(other);
       }
     }
   }
+}
+
+function findOurTabForUri(uri: vscode.Uri, excluding: vscode.Tab): vscode.Tab | undefined {
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      if (tab !== excluding && isOurTab(tab, uri)) return tab;
+    }
+  }
+  return undefined;
 }
 
 async function resolveFolderPath(uri?: vscode.Uri): Promise<string | undefined> {
