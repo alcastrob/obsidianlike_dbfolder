@@ -9,6 +9,7 @@ import {
   resolveLegacySource,
 } from "./core/legacyDbFolder";
 import { buildRowsFromFiles, scanFolder } from "./core/scanner";
+import { extractEqualityHints } from "./core/queryHints";
 import { DatabaseSourceInfo, DbFolderConfig, RowData } from "./core/types";
 import { resolveQueryFiles } from "./dataviewBridge";
 import { buildWebviewHtml, DatabaseHost } from "./databaseHost";
@@ -120,6 +121,15 @@ class NoteDatabaseHost extends DatabaseHost {
     if (source.mode === "folder") return source.folderPath;
     const dest = this.raw.config?.source_destination_path;
     return dest && this.workspaceRoot ? path.join(this.workspaceRoot, dest) : undefined;
+  }
+
+  protected getNewRowDefaults(): Record<string, unknown> {
+    const source = resolveLegacySource(this.raw, this.noteDir, this.workspaceRoot, this.config.recursive);
+    if (source.mode !== "query") return {};
+    // Best-effort so a new row is likely to already satisfy the query's WHERE
+    // clause and show up immediately, instead of silently existing on disk but
+    // absent from the table until manually edited to match.
+    return extractEqualityHints(source.queryFilter);
   }
 
   protected getSourceInfo(): DatabaseSourceInfo {

@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { upsertColumn, removeColumn } from "./core/configStore";
 import { writeFrontmatter, createNote } from "./core/frontmatter";
+import { buildDefaultFrontmatter } from "./core/propertyTypes";
 import { DatabaseSnapshot, DatabaseSourceInfo, DbFolderConfig, RowData, WebviewToHostMessage } from "./core/types";
 
 export function getNonce(): string {
@@ -62,6 +63,11 @@ export abstract class DatabaseHost {
   /** Only note-backed databases support editing their source; no-op otherwise. */
   protected async updateDatabaseSource(_source: DatabaseSourceInfo): Promise<void> {
     // no-op by default
+  }
+  /** Extra starter values for a new row beyond the per-column defaults (e.g. values
+   *  likely required by a query-mode database's WHERE clause). None by default. */
+  protected getNewRowDefaults(): Record<string, unknown> {
+    return {};
   }
 
   protected async buildSnapshot(): Promise<DatabaseSnapshot> {
@@ -136,7 +142,8 @@ export abstract class DatabaseHost {
           while (fs.existsSync(filePath)) {
             filePath = path.join(folder, `${safeName} ${++n}.md`);
           }
-          createNote(filePath, {});
+          const frontmatter = { ...buildDefaultFrontmatter(this.config.columns), ...this.getNewRowDefaults() };
+          createNote(filePath, frontmatter);
           await this.sendSnapshot();
           return;
         }

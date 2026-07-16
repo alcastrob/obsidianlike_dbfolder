@@ -69,6 +69,38 @@ export function mergeSelectOptions(
   return result;
 }
 
+// Types that aren't real, user-owned frontmatter properties: computed/synthetic
+// (formula, file stats) or backed by the reserved $name/$path/etc. row fields.
+const NON_PERSISTABLE_TYPES = new Set<PropertyType>(["formula", "createdTime", "modifiedTime", "filePath"]);
+
+/** A reasonable "empty" value to seed a brand-new row's frontmatter with, per type. */
+function defaultValueForType(column: ColumnDef): unknown {
+  switch (column.type) {
+    case "checkbox":
+      return false;
+    case "multiSelect":
+    case "tags":
+      return [];
+    case "text":
+      return "";
+    case "select":
+      return column.options?.[0]?.value ?? "";
+    default:
+      return undefined;
+  }
+}
+
+/** Builds starter frontmatter for a new row, matching the database's current columns. */
+export function buildDefaultFrontmatter(columns: ColumnDef[]): Record<string, unknown> {
+  const data: Record<string, unknown> = {};
+  for (const column of columns) {
+    if (NON_PERSISTABLE_TYPES.has(column.type)) continue;
+    const value = defaultValueForType(column);
+    if (value !== undefined) data[column.key] = value;
+  }
+  return data;
+}
+
 export function coerceValueForType(raw: unknown, type: PropertyType): unknown {
   if (raw === null || raw === undefined || raw === "") {
     return type === "checkbox" ? false : undefined;
