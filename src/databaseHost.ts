@@ -2,8 +2,9 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import { upsertColumn, removeColumn } from "./core/configStore";
-import { writeFrontmatter, createNote } from "./core/frontmatter";
-import { buildDefaultFrontmatter } from "./core/propertyTypes";
+import { writeFrontmatter, createNote, readNote } from "./core/frontmatter";
+import { buildColumnFromValue, buildDefaultFrontmatter, coerceValueForType, normalizeRawValue } from "./core/propertyTypes";
+import { csvRowsToRecords, parseCsv, toCsv } from "./core/csv";
 import { DatabaseSnapshot, DatabaseSourceInfo, DbFolderConfig, RowData, WebviewToHostMessage } from "./core/types";
 
 export function getNonce(): string {
@@ -68,6 +69,14 @@ export abstract class DatabaseHost {
    *  likely required by a query-mode database's WHERE clause). None by default. */
   protected getNewRowDefaults(): Record<string, unknown> {
     return {};
+  }
+  /** A template note to base new rows on (frontmatter + body), if configured. None by default. */
+  protected async getNewRowTemplate(): Promise<{ data: Record<string, unknown>; content: string } | undefined> {
+    return undefined;
+  }
+  /** Opens the database's own note as plain markdown source. No-op for folder-backed panels. */
+  protected async openRawSource(): Promise<void> {
+    // no-op by default
   }
 
   protected async buildSnapshot(): Promise<DatabaseSnapshot> {
@@ -142,8 +151,10 @@ export abstract class DatabaseHost {
           while (fs.existsSync(filePath)) {
             filePath = path.join(folder, `${safeName} ${++n}.md`);
           }
-          const frontmatter = { ...buildDefaultFrontmatter(this.config.columns), ...this.getNewRowDefaults() };
-          createNote(filePath, frontmatter);
+          const defaults = { ...buildDefaultFrontmatter(this.config.columns), ...this.getNewRowDefaults() };
+          const template = await this.getNewRowTemplate();
+          const frontmatter = template ? { ...defaults, ...template.data } : defaults;
+          createNote(filePath, frontmatter, template?.content ?? "");
           await this.sendSnapshot();
           return;
         }
@@ -194,6 +205,106 @@ export abstract class DatabaseHost {
         case "updateDatabaseSource":
           await this.updateDatabaseSource(msg.source);
           await this.sendSnapshot();
+          return;
+        case "updateDatabaseMeta":
+          await this.mutateConfig({
+            ...this.config,
+            name: msg.name ?? this.config.name,
+            description: msg.description ?? this.config.description,
+            cellSize: msg.cellSize ?? this.config.cellSize,
+            stickyFirstColumn: msg.stickyFirstColumn ?? this.config.stickyFirstColumn,
+          });
+          await this.sendSnapshot();
+          return;
+        case "generateColumnsFromNote": {
+          const picked = await vscode.window.showOpenDialog({
+            canSelectMany: false,
+            filters: { Markdown: ["md"] },
+            defaultUri: this.getRowCreationFolder() ? vscode.Uri.file(this.getRowCreationFolder()!) : undefined,
+            title: "Pick a note to generate columns from",
+          });
+          if (!picked || picked.length === 0) return;
+          const { data } = readNote(picked[0].fsPath);
+          let next = this.config;
+          for (const [key, rawValue] of Object.entries(data)) {
+            if (key.startsWith("$")) continue;
+            const value = normalizeRawValue(rawValue);
+            if (next.columns.some((c) => c.key === key)) continue;
+            next = upsertColumn(next, buildColumnFromValue(key, value));
+          }
+          await this.mutateConfig(next);
+          await this.sendSnapshot();
+          return;
+        }
+        case "exportCsv": {
+          const folder = this.getRowCreationFolder();
+          const defaultUri = folder
+            ? vscode.Uri.file(path.join(folder, `${this.config.name || "export"}.csv`))
+            : undefined;
+          const target = await vscode.window.showSaveDialog({ filters: { CSV: ["csv"] }, defaultUri });
+          if (!target) return;
+          fs.writeFileSync(target.fsPath, toCsv(msg.columns, msg.rows), "utf8");
+          vscode.window.showInformationMessage(`Exported ${msg.rows.length} row(s) to ${path.basename(target.fsPath)}.`);
+          return;
+        }
+        case "importCsv": {
+          const picked = await vscode.window.showOpenDialog({
+            canSelectMany: false,
+            filters: { CSV: ["csv"] },
+            title: "Pick a CSV file to import",
+          });
+          if (!picked || picked.length === 0) return;
+
+          const folder = this.getRowCreationFolder();
+          if (!folder) {
+            this.getWebview().postMessage({
+              type: "error",
+              message: "This database has no folder to create new notes in.",
+            });
+            return;
+          }
+          if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true });
+
+          const csvRows = parseCsv(fs.readFileSync(picked[0].fsPath, "utf8"));
+          if (csvRows.length === 0) return;
+
+          // Auto-add any column the CSV has that we don't already know about.
+          const [header, ...body] = csvRows;
+          let config = this.config;
+          const knownLabels = new Set(config.columns.map((c) => c.label));
+          header.forEach((label, idx) => {
+            if (knownLabels.has(label) || label === "File") return;
+            const sample = body.map((r) => r[idx]).find((v) => v && v.trim());
+            config = upsertColumn(config, buildColumnFromValue(label, sample ?? ""));
+          });
+          if (config !== this.config) await this.mutateConfig(config);
+
+          const persistableTypes = new Set(["formula", "createdTime", "modifiedTime", "filePath"]);
+          for (const record of csvRowsToRecords(csvRows, config.columns)) {
+            const nameValue = record["$name"] || record["File"] || "Untitled";
+            const safeName = String(nameValue).replace(/[\\/:*?"<>|]/g, "").trim() || "Untitled";
+            let filePath = path.join(folder, `${safeName}.md`);
+            let n = 1;
+            while (fs.existsSync(filePath)) filePath = path.join(folder, `${safeName} ${++n}.md`);
+
+            const frontmatter: Record<string, unknown> = {};
+            for (const col of config.columns) {
+              if (persistableTypes.has(col.type)) continue;
+              const raw = record[col.key];
+              if (raw === undefined || raw === "") continue;
+              const isMulti = col.type === "multiSelect" || col.type === "tags";
+              frontmatter[col.key] = coerceValueForType(
+                isMulti ? raw.split(";").map((s) => s.trim()).filter(Boolean) : raw,
+                col.type
+              );
+            }
+            createNote(filePath, frontmatter);
+          }
+          await this.sendSnapshot();
+          return;
+        }
+        case "openRawSource":
+          await this.openRawSource();
           return;
         case "refresh":
           await this.sendSnapshot();

@@ -18,17 +18,21 @@
     "commands": [
       {
         "command": "mdDbFolder.openDatabaseView",
-        "title": "DB Folder: Open Database View",
+        "title": "Obsidian like DbFolder: Open Database View",
         "icon": "$(table)"
       },
       {
         "command": "mdDbFolder.refresh",
-        "title": "DB Folder: Refresh View",
+        "title": "Obsidian like DbFolder: Refresh View",
         "icon": "$(refresh)"
       },
       {
         "command": "mdDbFolder.openNoteSource",
-        "title": "DB Folder: Open Note Source (Plain Text)"
+        "title": "Obsidian like DbFolder: Open Note Source (Plain Text)"
+      },
+      {
+        "command": "mdDbFolder.configureVaultSettings",
+        "title": "Obsidian like DbFolder: Configure Vault Settings"
       }
     ],
     "menus": {
@@ -48,13 +52,16 @@
         },
         {
           "command": "mdDbFolder.openNoteSource"
+        },
+        {
+          "command": "mdDbFolder.configureVaultSettings"
         }
       ]
     },
     "customEditors": [
       {
         "viewType": "mdDbFolder.databaseNoteEditor",
-        "displayName": "DB Folder: Database Note",
+        "displayName": "Obsidian like DbFolder: Database Note",
         "selector": [{ "filenamePattern": "*.md" }],
         "priority": "option"
       }

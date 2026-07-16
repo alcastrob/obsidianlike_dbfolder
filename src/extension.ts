@@ -2,6 +2,8 @@ import * as vscode from "vscode";
 import { DbFolderPanel } from "./dbFolderPanel";
 import { DATABASE_NOTE_EDITOR_VIEW_TYPE, registerDatabaseNoteEditor } from "./databaseNoteEditor";
 import { isDatabaseNote } from "./core/legacyDbFolder";
+import { clearViewingRaw, isViewingRaw, markViewingRaw } from "./rawViewState";
+import { openGlobalSettingsPanel } from "./globalSettingsPanel";
 
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
@@ -21,7 +23,13 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("mdDbFolder.openNoteSource", async () => {
       const uri = vscode.window.activeTextEditor?.document.uri;
       if (!uri) return;
+      markViewingRaw(uri.toString());
       await vscode.commands.executeCommand("vscode.openWith", uri, "default");
+    }),
+    vscode.commands.registerCommand("mdDbFolder.configureVaultSettings", async () => {
+      const vaultRoot = await resolveFolderPath(undefined);
+      if (!vaultRoot) return;
+      openGlobalSettingsPanel(context, vaultRoot);
     }),
     registerDatabaseNoteEditor(context),
     // onDidOpenTextDocument only fires the *first* time a document loads into
@@ -31,6 +39,10 @@ export function activate(context: vscode.ExtensionContext): void {
     // for every new tab regardless, which is the signal we actually need.
     vscode.window.tabGroups.onDidChangeTabs((e) => {
       for (const tab of e.opened) handleTabOpened(tab);
+      for (const tab of e.closed) {
+        const uri = tabUri(tab);
+        if (uri) clearViewingRaw(uri.toString());
+      }
     })
   );
 
@@ -61,6 +73,7 @@ async function handleTabOpened(tab: vscode.Tab): Promise<void> {
   const uri = tabUri(tab);
   if (!uri || !uri.fsPath.toLowerCase().endsWith(".md")) return;
   if (isOurTab(tab, uri)) return;
+  if (isViewingRaw(uri.toString())) return;
 
   // Already open elsewhere with our editor: this new tab is a duplicate (e.g. a
   // fresh Explorer-click preview tab) - close it and focus the existing one.

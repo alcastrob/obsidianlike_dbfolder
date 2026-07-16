@@ -1,13 +1,18 @@
 import React, { useEffect, useState } from "react";
 import {
+  CellSize,
   ColumnDef,
   DatabaseSnapshot,
   DatabaseSourceInfo,
-  FilterRule,
+  FilterCondition,
+  FilterGroup,
+  FilterNode,
+  FilterOperator,
   PropertyType,
   SortRule,
   ViewDef,
 } from "../../core/types";
+import { countFilterConditions, normalizeFilterGroup } from "../../core/query";
 import { post } from "../vscodeApi";
 
 const TYPE_OPTIONS: PropertyType[] = [
@@ -87,13 +92,21 @@ export function ColumnsMenu({ snapshot }: { snapshot: DatabaseSnapshot }): JSX.E
             )}
             <button onClick={addColumn}>Add property</button>
           </div>
+          <div className="menu-add-form">
+            <button
+              onClick={() => post({ type: "generateColumnsFromNote" })}
+              title="Pick a note and add one column per frontmatter property it has"
+            >
+              Use note as template…
+            </button>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-const FILTER_OPERATORS: FilterRule["operator"][] = [
+const FILTER_OPERATORS: FilterOperator[] = [
   "eq",
   "neq",
   "contains",
@@ -106,6 +119,128 @@ const FILTER_OPERATORS: FilterRule["operator"][] = [
   "lte",
 ];
 
+function ConditionRow({
+  condition,
+  columns,
+  onChange,
+  onRemove,
+}: {
+  condition: FilterCondition;
+  columns: ColumnDef[];
+  onChange: (next: FilterCondition) => void;
+  onRemove: () => void;
+}): JSX.Element {
+  return (
+    <div className="menu-row filter-row">
+      <select value={condition.columnKey} onChange={(e) => onChange({ ...condition, columnKey: e.target.value })}>
+        {columns.map((c) => (
+          <option key={c.key} value={c.key}>
+            {c.label}
+          </option>
+        ))}
+      </select>
+      <select
+        value={condition.operator}
+        onChange={(e) => onChange({ ...condition, operator: e.target.value as FilterOperator })}
+      >
+        {FILTER_OPERATORS.map((op) => (
+          <option key={op} value={op}>
+            {op}
+          </option>
+        ))}
+      </select>
+      {condition.operator !== "isEmpty" && condition.operator !== "isNotEmpty" && (
+        <input value={condition.value ?? ""} onChange={(e) => onChange({ ...condition, value: e.target.value })} />
+      )}
+      <button className="icon-btn" onClick={onRemove}>
+        ✕
+      </button>
+    </div>
+  );
+}
+
+function FilterGroupEditor({
+  group,
+  columns,
+  onChange,
+  depth,
+}: {
+  group: FilterGroup;
+  columns: ColumnDef[];
+  onChange: (next: FilterGroup) => void;
+  depth: number;
+}): JSX.Element {
+  const updateChild = (idx: number, next: FilterNode) => {
+    const children = group.children.slice();
+    children[idx] = next;
+    onChange({ ...group, children });
+  };
+  const removeChild = (idx: number) => {
+    onChange({ ...group, children: group.children.filter((_, i) => i !== idx) });
+  };
+  const addCondition = () => {
+    const first = columns[0];
+    if (!first) return;
+    onChange({
+      ...group,
+      children: [
+        ...group.children,
+        { id: `c-${Date.now()}`, kind: "condition", columnKey: first.key, operator: "contains", value: "" },
+      ],
+    });
+  };
+  const addGroup = () => {
+    onChange({
+      ...group,
+      children: [...group.children, { id: `g-${Date.now()}`, kind: "group", combinator: "and", children: [] }],
+    });
+  };
+
+  return (
+    <div className="filter-group">
+      {group.children.length > 1 && (
+        <div className="menu-row">
+          <span>Match</span>
+          <select
+            value={group.combinator}
+            onChange={(e) => onChange({ ...group, combinator: e.target.value as "and" | "or" })}
+          >
+            <option value="and">ALL (AND)</option>
+            <option value="or">ANY (OR)</option>
+          </select>
+        </div>
+      )}
+      <div className="menu-list">
+        {group.children.map((child, idx) =>
+          child.kind === "condition" ? (
+            <ConditionRow
+              key={child.id}
+              condition={child}
+              columns={columns}
+              onChange={(next) => updateChild(idx, next)}
+              onRemove={() => removeChild(idx)}
+            />
+          ) : (
+            <div key={child.id} className="filter-subgroup">
+              <div className="filter-subgroup-header">
+                <span className="menu-section-title">Group</span>
+                <button className="icon-btn" onClick={() => removeChild(idx)}>
+                  ✕
+                </button>
+              </div>
+              <FilterGroupEditor group={child} columns={columns} onChange={(next) => updateChild(idx, next)} depth={depth + 1} />
+            </div>
+          )
+        )}
+      </div>
+      <div className="filter-group-actions">
+        <button onClick={addCondition}>+ Add filter</button>
+        <button onClick={addGroup}>+ Add filter group</button>
+      </div>
+    </div>
+  );
+}
+
 export function FilterMenu({
   snapshot,
   view,
@@ -114,74 +249,19 @@ export function FilterMenu({
   view: ViewDef;
 }): JSX.Element {
   const [open, toggle, close] = useToggle();
+  const filterGroup = normalizeFilterGroup(view.filters);
+  const count = countFilterConditions(filterGroup);
 
-  const updateFilters = (filters: FilterRule[]) => {
+  const updateFilters = (filters: FilterGroup) => {
     post({ type: "updateView", view: { ...view, filters } });
-  };
-
-  const addFilter = () => {
-    const first = snapshot.config.columns[0];
-    if (!first) return;
-    updateFilters([
-      ...view.filters,
-      { id: `f-${Date.now()}`, columnKey: first.key, operator: "contains", value: "" },
-    ]);
   };
 
   return (
     <div className="menu-container">
-      <button onClick={toggle}>Filter{view.filters.length > 0 ? ` (${view.filters.length})` : ""}</button>
+      <button onClick={toggle}>Filter{count > 0 ? ` (${count})` : ""}</button>
       {open && (
         <div className="popover wide" onMouseLeave={close}>
-          <div className="menu-list">
-            {view.filters.map((f) => (
-              <div key={f.id} className="menu-row filter-row">
-                <select
-                  value={f.columnKey}
-                  onChange={(e) =>
-                    updateFilters(view.filters.map((x) => (x.id === f.id ? { ...x, columnKey: e.target.value } : x)))
-                  }
-                >
-                  {snapshot.config.columns.map((c) => (
-                    <option key={c.key} value={c.key}>
-                      {c.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={f.operator}
-                  onChange={(e) =>
-                    updateFilters(
-                      view.filters.map((x) =>
-                        x.id === f.id ? { ...x, operator: e.target.value as FilterRule["operator"] } : x
-                      )
-                    )
-                  }
-                >
-                  {FILTER_OPERATORS.map((op) => (
-                    <option key={op} value={op}>
-                      {op}
-                    </option>
-                  ))}
-                </select>
-                {f.operator !== "isEmpty" && f.operator !== "isNotEmpty" && (
-                  <input
-                    value={f.value ?? ""}
-                    onChange={(e) =>
-                      updateFilters(view.filters.map((x) => (x.id === f.id ? { ...x, value: e.target.value } : x)))
-                    }
-                  />
-                )}
-                <button
-                  className="icon-btn"
-                  onClick={() => updateFilters(view.filters.filter((x) => x.id !== f.id))}
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-          </div>
-          <button onClick={addFilter}>+ Add filter</button>
+          <FilterGroupEditor group={filterGroup} columns={snapshot.config.columns} onChange={updateFilters} depth={0} />
         </div>
       )}
     </div>
@@ -268,6 +348,7 @@ function DatabaseSourceSection({ sourceInfo }: { sourceInfo: DatabaseSourceInfo 
   const [folderPath, setFolderPath] = useState(sourceInfo.folderPath ?? "");
   const [recursive, setRecursive] = useState(Boolean(sourceInfo.recursive));
   const [queryFilter, setQueryFilter] = useState(sourceInfo.queryFilter ?? "");
+  const [templatePath, setTemplatePath] = useState(sourceInfo.templatePath ?? "");
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
@@ -276,8 +357,9 @@ function DatabaseSourceSection({ sourceInfo }: { sourceInfo: DatabaseSourceInfo 
     setFolderPath(sourceInfo.folderPath ?? "");
     setRecursive(Boolean(sourceInfo.recursive));
     setQueryFilter(sourceInfo.queryFilter ?? "");
+    setTemplatePath(sourceInfo.templatePath ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceInfo.mode, sourceInfo.folderPath, sourceInfo.recursive, sourceInfo.queryFilter]);
+  }, [sourceInfo.mode, sourceInfo.folderPath, sourceInfo.recursive, sourceInfo.queryFilter, sourceInfo.templatePath]);
 
   const markDirty = <T,>(setter: (v: T) => void) => (v: T) => {
     setter(v);
@@ -292,6 +374,7 @@ function DatabaseSourceSection({ sourceInfo }: { sourceInfo: DatabaseSourceInfo 
         folderPath: folderPath.trim() || undefined,
         recursive,
         queryFilter: queryFilter.trim() || undefined,
+        templatePath: templatePath.trim() || undefined,
       },
     });
     setDirty(false);
@@ -343,8 +426,89 @@ function DatabaseSourceSection({ sourceInfo }: { sourceInfo: DatabaseSourceInfo 
           </label>
         </>
       )}
+      <label className="menu-row">
+        <span>Row template</span>
+        <input
+          value={templatePath}
+          onChange={(e) => markDirty(setTemplatePath)(e.target.value)}
+          placeholder="e.g. Templates/New topic.md (optional)"
+        />
+      </label>
       <button onClick={save} disabled={!dirty}>
         Save source
+      </button>
+    </div>
+  );
+}
+
+/** Database-level settings (name, description, cell size, sticky first column) - apply
+ *  regardless of which view is active, matching the real plugin's per-database dialog. */
+function DatabaseMetaSection({ snapshot }: { snapshot: DatabaseSnapshot }): JSX.Element {
+  const [name, setName] = useState(snapshot.config.name ?? "");
+  const [description, setDescription] = useState(snapshot.config.description ?? "");
+  const [cellSize, setCellSize] = useState<CellSize>(snapshot.config.cellSize ?? "normal");
+  const [stickyFirstColumn, setStickyFirstColumn] = useState(Boolean(snapshot.config.stickyFirstColumn));
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (dirty) return;
+    setName(snapshot.config.name ?? "");
+    setDescription(snapshot.config.description ?? "");
+    setCellSize(snapshot.config.cellSize ?? "normal");
+    setStickyFirstColumn(Boolean(snapshot.config.stickyFirstColumn));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot.config.name, snapshot.config.description, snapshot.config.cellSize, snapshot.config.stickyFirstColumn]);
+
+  const markDirty = <T,>(setter: (v: T) => void) => (v: T) => {
+    setter(v);
+    setDirty(true);
+  };
+
+  const save = () => {
+    post({
+      type: "updateDatabaseMeta",
+      name: name.trim() || undefined,
+      description: description.trim() || undefined,
+      cellSize,
+      stickyFirstColumn,
+    });
+    setDirty(false);
+  };
+
+  return (
+    <div className="db-source-section">
+      <div className="menu-section-title">Database settings</div>
+      <label className="menu-row">
+        <span>Name</span>
+        <input value={name} onChange={(e) => markDirty(setName)(e.target.value)} placeholder="Database name" />
+      </label>
+      <label className="menu-col">
+        <span>Description</span>
+        <textarea
+          rows={2}
+          value={description}
+          onChange={(e) => markDirty(setDescription)(e.target.value)}
+          placeholder="Optional description"
+        />
+      </label>
+      <label className="menu-row">
+        <span>Cell size</span>
+        <select value={cellSize} onChange={(e) => markDirty(setCellSize)(e.target.value as CellSize)}>
+          <option value="compact">Compact</option>
+          <option value="normal">Normal</option>
+          <option value="wide">Wide</option>
+        </select>
+      </label>
+      <label className="menu-row">
+        <span>Sticky first column</span>
+        <input
+          type="checkbox"
+          checked={stickyFirstColumn}
+          onChange={(e) => markDirty(setStickyFirstColumn)(e.target.checked)}
+        />
+      </label>
+      <button onClick={save} disabled={!dirty}>
+        Save
       </button>
     </div>
   );
@@ -367,6 +531,7 @@ export function ViewSettingsMenu({
       </button>
       {open && (
         <div className="popover wide" onMouseLeave={close}>
+          <DatabaseMetaSection snapshot={snapshot} />
           <label className="menu-row">
             <span>View name</span>
             <input

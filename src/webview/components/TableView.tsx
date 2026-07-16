@@ -21,9 +21,14 @@ export function TableView({ snapshot, view, columns, rows }: ViewComponentProps)
     post({ type: "updateColumn", column: { ...col, label } });
   };
 
+  const cellSizeClass = `cell-${snapshot.config.cellSize ?? "normal"}`;
+  const tableClassName = ["db-table", cellSizeClass, snapshot.config.stickyFirstColumn ? "sticky-first-col" : ""]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <div className="table-scroll">
-      <table className="db-table">
+      <table className={tableClassName}>
         <thead>
           <tr>
             <th className="row-handle-col" />

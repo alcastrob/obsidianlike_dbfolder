@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { DatabaseSnapshot, ViewDef, ViewType } from "../../core/types";
+import { ColumnDef, DatabaseSnapshot, RowData, ViewDef, ViewType } from "../../core/types";
+import { emptyFilterGroup } from "../../core/query";
 import { post } from "../vscodeApi";
 import { ColumnsMenu, FilterMenu, SortMenu, ViewSettingsMenu } from "./ToolbarMenus";
 
@@ -16,7 +17,7 @@ function makeView(type: ViewType, columnOrder: string[]): ViewDef {
     name: type[0].toUpperCase() + type.slice(1),
     type,
     columnOrder,
-    filters: [],
+    filters: emptyFilterGroup(),
     sorts: [],
   };
 }
@@ -25,10 +26,14 @@ export function Toolbar({
   snapshot,
   activeView,
   onSetActiveView,
+  visibleColumns,
+  visibleRows,
 }: {
   snapshot: DatabaseSnapshot;
   activeView: ViewDef;
   onSetActiveView: (id: string) => void;
+  visibleColumns: ColumnDef[];
+  visibleRows: RowData[];
 }): JSX.Element {
   const [addingView, setAddingView] = useState(false);
   const [newRowName, setNewRowName] = useState("");
@@ -84,6 +89,20 @@ export function Toolbar({
         <FilterMenu snapshot={snapshot} view={activeView} />
         <SortMenu snapshot={snapshot} view={activeView} />
         <ViewSettingsMenu snapshot={snapshot} view={activeView} />
+        <button
+          title="Export the current view's rows to CSV"
+          onClick={() => post({ type: "exportCsv", columns: visibleColumns, rows: visibleRows })}
+        >
+          ↓ CSV
+        </button>
+        <button title="Import rows from a CSV file" onClick={() => post({ type: "importCsv" })}>
+          ↑ CSV
+        </button>
+        {snapshot.sourceInfo && (
+          <button title="View this database's note as plain markdown source" onClick={() => post({ type: "openRawSource" })}>
+            📄
+          </button>
+        )}
         <button title="Refresh" onClick={() => post({ type: "refresh" })}>
           ⟳
         </button>

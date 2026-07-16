@@ -31,22 +31,34 @@ export interface ColumnDef {
 
 export type ViewType = "table" | "board" | "list" | "gallery";
 
-export interface FilterRule {
+export type FilterOperator =
+  | "eq"
+  | "neq"
+  | "contains"
+  | "notContains"
+  | "isEmpty"
+  | "isNotEmpty"
+  | "gt"
+  | "gte"
+  | "lt"
+  | "lte";
+
+export interface FilterCondition {
   id: string;
+  kind: "condition";
   columnKey: string;
-  operator:
-    | "eq"
-    | "neq"
-    | "contains"
-    | "notContains"
-    | "isEmpty"
-    | "isNotEmpty"
-    | "gt"
-    | "gte"
-    | "lt"
-    | "lte";
+  operator: FilterOperator;
   value?: string;
 }
+
+export interface FilterGroup {
+  id: string;
+  kind: "group";
+  combinator: "and" | "or";
+  children: FilterNode[];
+}
+
+export type FilterNode = FilterCondition | FilterGroup;
 
 export interface SortRule {
   columnKey: string;
@@ -58,11 +70,13 @@ export interface ViewDef {
   name: string;
   type: ViewType;
   columnOrder: string[]; // column keys, in display order
-  filters: FilterRule[];
+  filters: FilterGroup; // root group; nested groups combine with AND/OR
   sorts: SortRule[];
   groupByColumnKey?: string; // used by board view (must be select type); optional grouping for others
   coverColumnKey?: string; // used by gallery view for image field
 }
+
+export type CellSize = "compact" | "normal" | "wide";
 
 export interface DbFolderConfig {
   version: 1;
@@ -70,6 +84,10 @@ export interface DbFolderConfig {
   columns: ColumnDef[];
   views: ViewDef[];
   activeViewId: string;
+  name?: string;
+  description?: string;
+  cellSize?: CellSize;
+  stickyFirstColumn?: boolean;
 }
 
 export interface RowData {
@@ -85,6 +103,7 @@ export interface DatabaseSourceInfo {
   folderPath?: string; // workspace-relative; folder-mode's row folder, or query-mode's destination for new rows
   recursive?: boolean; // folder mode only
   queryFilter?: string; // query mode only, e.g. FROM "..." WHERE ...
+  templatePath?: string; // workspace-relative path to a note used as the starting point for new rows
 }
 
 export interface DatabaseSnapshot {
@@ -117,4 +136,15 @@ export type WebviewToHostMessage =
   | { type: "setActiveView"; viewId: string }
   | { type: "setRecursive"; recursive: boolean }
   | { type: "updateDatabaseSource"; source: DatabaseSourceInfo }
+  | {
+      type: "updateDatabaseMeta";
+      name?: string;
+      description?: string;
+      cellSize?: CellSize;
+      stickyFirstColumn?: boolean;
+    }
+  | { type: "generateColumnsFromNote" }
+  | { type: "exportCsv"; columns: ColumnDef[]; rows: RowData[] }
+  | { type: "importCsv" }
+  | { type: "openRawSource" }
   | { type: "refresh" };

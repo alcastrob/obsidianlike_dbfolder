@@ -1,4 +1,4 @@
-import { FilterRule, RowData, SortRule } from "./types";
+import { FilterCondition, FilterGroup, FilterNode, RowData, SortRule } from "./types";
 
 function toComparable(value: unknown): string | number {
   if (typeof value === "number") return value;
@@ -14,38 +14,83 @@ function toComparable(value: unknown): string | number {
   return str;
 }
 
-function matchesFilter(row: RowData, filter: FilterRule): boolean {
-  const value = row.values[filter.columnKey];
-  const target = (filter.value ?? "").toLowerCase();
-  switch (filter.operator) {
+function matchesCondition(row: RowData, condition: FilterCondition): boolean {
+  const value = row.values[condition.columnKey];
+  const target = (condition.value ?? "").toLowerCase();
+  switch (condition.operator) {
     case "isEmpty":
       return value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0);
     case "isNotEmpty":
-      return !matchesFilter(row, { ...filter, operator: "isEmpty" });
+      return !matchesCondition(row, { ...condition, operator: "isEmpty" });
     case "eq":
-      return toComparable(value) === toComparable(filter.value);
+      return toComparable(value) === toComparable(condition.value);
     case "neq":
-      return toComparable(value) !== toComparable(filter.value);
+      return toComparable(value) !== toComparable(condition.value);
     case "contains":
       return toComparable(value).toString().includes(target);
     case "notContains":
       return !toComparable(value).toString().includes(target);
     case "gt":
-      return Number(value) > Number(filter.value);
+      return Number(value) > Number(condition.value);
     case "gte":
-      return Number(value) >= Number(filter.value);
+      return Number(value) >= Number(condition.value);
     case "lt":
-      return Number(value) < Number(filter.value);
+      return Number(value) < Number(condition.value);
     case "lte":
-      return Number(value) <= Number(filter.value);
+      return Number(value) <= Number(condition.value);
     default:
       return true;
   }
 }
 
-export function applyFilters(rows: RowData[], filters: FilterRule[]): RowData[] {
-  if (filters.length === 0) return rows;
-  return rows.filter((row) => filters.every((f) => matchesFilter(row, f)));
+function matchesNode(row: RowData, node: FilterNode): boolean {
+  if (node.kind === "condition") return matchesCondition(row, node);
+  if (node.children.length === 0) return true; // an empty group is a neutral, always-true filter
+  return node.combinator === "and"
+    ? node.children.every((child) => matchesNode(row, child))
+    : node.children.some((child) => matchesNode(row, child));
+}
+
+export function applyFilters(rows: RowData[], filterGroup: FilterGroup): RowData[] {
+  return rows.filter((row) => matchesNode(row, filterGroup));
+}
+
+export function countFilterConditions(node: FilterNode): number {
+  if (node.kind === "condition") return 1;
+  return node.children.reduce((sum, child) => sum + countFilterConditions(child), 0);
+}
+
+export function emptyFilterGroup(): FilterGroup {
+  return { id: "root", kind: "group", combinator: "and", children: [] };
+}
+
+/**
+ * Views persisted before nested filter groups existed stored `filters` as a flat
+ * FilterRule[] (implicitly AND-ed). Wrap that shape into an equivalent root group;
+ * pass through anything that's already a group unchanged.
+ */
+export function normalizeFilterGroup(value: unknown): FilterGroup {
+  if (value && typeof value === "object" && !Array.isArray(value) && (value as { kind?: string }).kind === "group") {
+    return value as FilterGroup;
+  }
+  if (Array.isArray(value)) {
+    const children: FilterNode[] = value.map((r, idx) => ({
+      id: typeof r?.id === "string" ? r.id : `f-${idx}-${Date.now()}`,
+      kind: "condition" as const,
+      columnKey: r?.columnKey ?? "",
+      operator: r?.operator ?? "contains",
+      value: r?.value,
+    }));
+    return { id: "root", kind: "group", combinator: "and", children };
+  }
+  return emptyFilterGroup();
+}
+
+export function removeColumnFromFilterGroup(group: FilterGroup, columnKey: string): FilterGroup {
+  const children = group.children
+    .map((child) => (child.kind === "group" ? removeColumnFromFilterGroup(child, columnKey) : child))
+    .filter((child) => !(child.kind === "condition" && child.columnKey === columnKey));
+  return { ...group, children };
 }
 
 export function applySorts(rows: RowData[], sorts: SortRule[]): RowData[] {

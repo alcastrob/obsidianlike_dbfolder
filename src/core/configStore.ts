@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { ColumnDef, DbFolderConfig, ViewDef } from "./types";
+import { emptyFilterGroup, normalizeFilterGroup, removeColumnFromFilterGroup } from "./query";
 
 export const CONFIG_FILENAME = ".dbfolder.json";
 
@@ -14,7 +15,7 @@ function defaultTableView(columnOrder: string[]): ViewDef {
     name: "Table",
     type: "table",
     columnOrder,
-    filters: [],
+    filters: emptyFilterGroup(),
     sorts: [],
   };
 }
@@ -29,6 +30,11 @@ export function defaultConfig(): DbFolderConfig {
   };
 }
 
+/** Guards against on-disk data predating a schema change (e.g. flat filters -> nested groups). */
+function normalizeView(view: ViewDef): ViewDef {
+  return { ...view, filters: normalizeFilterGroup(view.filters) };
+}
+
 export function loadConfig(folderPath: string): DbFolderConfig {
   const file = configPath(folderPath);
   if (!fs.existsSync(file)) {
@@ -40,6 +46,8 @@ export function loadConfig(folderPath: string): DbFolderConfig {
     if (!parsed.views || parsed.views.length === 0) {
       parsed.views = [defaultTableView(parsed.columns?.map((c) => c.key) ?? [])];
       parsed.activeViewId = parsed.views[0].id;
+    } else {
+      parsed.views = parsed.views.map(normalizeView);
     }
     return parsed;
   } catch {
@@ -84,7 +92,7 @@ export function removeColumn(config: DbFolderConfig, columnKey: string): DbFolde
     views: config.views.map((v) => ({
       ...v,
       columnOrder: v.columnOrder.filter((k) => k !== columnKey),
-      filters: v.filters.filter((f) => f.columnKey !== columnKey),
+      filters: removeColumnFromFilterGroup(v.filters, columnKey),
       sorts: v.sorts.filter((s) => s.columnKey !== columnKey),
       groupByColumnKey: v.groupByColumnKey === columnKey ? undefined : v.groupByColumnKey,
     })),

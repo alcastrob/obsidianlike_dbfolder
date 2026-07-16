@@ -5,8 +5,9 @@
 // the same block so notes stay interoperable with the original plugin.
 import * as yaml from "js-yaml";
 import * as path from "path";
-import { ColumnDef, DbFolderConfig, PropertyType, SelectOption, ViewDef } from "./types";
+import { CellSize, ColumnDef, DbFolderConfig, PropertyType, SelectOption, ViewDef } from "./types";
 import { defaultConfig } from "./configStore";
+import { emptyFilterGroup, normalizeFilterGroup } from "./query";
 
 // Trailing whitespace on the fence line (common in notes exported with hard line
 // breaks, e.g. Obsidian's "  " end-of-line marker) must not prevent a match.
@@ -43,6 +44,9 @@ export interface LegacyConfig {
   source_data?: "folder" | "query";
   source_destination_path?: string;
   source_form_result?: string;
+  cell_size?: CellSize;
+  sticky_first_column?: boolean;
+  current_row_template?: string;
   [key: string]: unknown;
 }
 
@@ -184,7 +188,7 @@ function defaultTableView(columnOrder: string[]): ViewDef {
     name: "Table",
     type: "table",
     columnOrder,
-    filters: [],
+    filters: emptyFilterGroup(),
     sorts: [],
   };
 }
@@ -196,19 +200,27 @@ export function legacyToInternalConfig(raw: LegacyDbFolderRaw): DbFolderConfig {
   const columns: ColumnDef[] = entries.map(([key, col]) => mapLegacyColumn(key, col));
   const columnOrder = columns.map((c) => c.key);
 
+  const meta = {
+    name: raw.name,
+    description: raw.description,
+    cellSize: raw.config?.cell_size ?? "normal",
+    stickyFirstColumn: Boolean(raw.config?.sticky_first_column),
+  };
+
   const extra = raw.vscodeDbFolder;
   if (extra?.views?.length) {
     return {
       version: 1,
       recursive: false,
       columns,
-      views: extra.views,
+      views: extra.views.map((v) => ({ ...v, filters: normalizeFilterGroup(v.filters) })),
       activeViewId: extra.activeViewId ?? extra.views[0].id,
+      ...meta,
     };
   }
 
   const base = defaultConfig();
-  return { ...base, columns, views: [defaultTableView(columnOrder)], activeViewId: "table-default" };
+  return { ...base, columns, views: [defaultTableView(columnOrder)], activeViewId: "table-default", ...meta };
 }
 
 /** Merges our current config's columns/views back into the parsed raw object for serialization. */
@@ -224,7 +236,14 @@ export function internalConfigToLegacy(raw: LegacyDbFolderRaw, config: DbFolderC
 
   return {
     ...raw,
+    name: config.name ?? raw.name,
+    description: config.description ?? raw.description,
     columns: nextColumns,
+    config: {
+      ...raw.config,
+      cell_size: config.cellSize ?? raw.config?.cell_size,
+      sticky_first_column: config.stickyFirstColumn ?? raw.config?.sticky_first_column,
+    },
     vscodeDbFolder: { views: config.views, activeViewId: config.activeViewId },
   };
 }

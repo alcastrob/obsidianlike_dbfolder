@@ -60,6 +60,8 @@ export function App(): JSX.Element {
         snapshot={snapshot}
         activeView={activeView}
         onSetActiveView={setActiveViewId}
+        visibleColumns={columns}
+        visibleRows={visibleRows}
       />
       {activeView.type === "table" && (
         <TableView snapshot={snapshot} view={activeView} columns={columns} rows={visibleRows} />

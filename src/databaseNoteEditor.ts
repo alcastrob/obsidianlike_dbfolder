@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as fs from "fs";
 import * as path from "path";
 import {
   extractLegacyBlock,
@@ -8,10 +9,13 @@ import {
   replaceLegacyBlock,
   resolveLegacySource,
 } from "./core/legacyDbFolder";
+import { readNote } from "./core/frontmatter";
+import { normalizeRawValue } from "./core/propertyTypes";
 import { buildRowsFromFiles, scanFolder } from "./core/scanner";
 import { extractEqualityHints } from "./core/queryHints";
 import { DatabaseSourceInfo, DbFolderConfig, RowData } from "./core/types";
 import { resolveQueryFiles } from "./dataviewBridge";
+import { markViewingRaw } from "./rawViewState";
 import { buildWebviewHtml, DatabaseHost } from "./databaseHost";
 
 export const DATABASE_NOTE_EDITOR_VIEW_TYPE = "mdDbFolder.databaseNoteEditor";
@@ -123,6 +127,11 @@ class NoteDatabaseHost extends DatabaseHost {
     return dest && this.workspaceRoot ? path.join(this.workspaceRoot, dest) : undefined;
   }
 
+  protected async openRawSource(): Promise<void> {
+    markViewingRaw(this.document.uri.toString());
+    await vscode.commands.executeCommand("vscode.openWith", this.document.uri, "default");
+  }
+
   protected getNewRowDefaults(): Record<string, unknown> {
     const source = resolveLegacySource(this.raw, this.noteDir, this.workspaceRoot, this.config.recursive);
     if (source.mode !== "query") return {};
@@ -140,6 +149,7 @@ class NoteDatabaseHost extends DatabaseHost {
       folderPath: typeof cfg.source_destination_path === "string" ? cfg.source_destination_path : "",
       recursive: this.config.recursive,
       queryFilter: typeof cfg.source_form_result === "string" ? cfg.source_form_result : "",
+      templatePath: typeof cfg.current_row_template === "string" ? cfg.current_row_template : "",
     };
   }
 
@@ -151,6 +161,7 @@ class NoteDatabaseHost extends DatabaseHost {
         source_data: source.mode,
         source_destination_path: source.folderPath || undefined,
         source_form_result: source.mode === "query" ? source.queryFilter || undefined : this.raw.config?.source_form_result,
+        current_row_template: source.templatePath || undefined,
       },
     };
     if (source.mode === "folder" && typeof source.recursive === "boolean" && source.recursive !== this.config.recursive) {
@@ -158,6 +169,18 @@ class NoteDatabaseHost extends DatabaseHost {
     }
     await this.applyRawEdit(nextRaw);
     this.onConfigPersisted();
+  }
+
+  protected async getNewRowTemplate(): Promise<{ data: Record<string, unknown>; content: string } | undefined> {
+    const templateRel = this.raw.config?.current_row_template;
+    if (typeof templateRel !== "string" || !templateRel.trim() || !this.workspaceRoot) return undefined;
+    const templatePath = path.join(this.workspaceRoot, templateRel);
+    if (!fs.existsSync(templatePath)) return undefined;
+
+    const { data, content } = readNote(templatePath);
+    const normalized: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(data)) normalized[key] = normalizeRawValue(value);
+    return { data: normalized, content };
   }
 
   protected async resolveRows(config: DbFolderConfig): Promise<{ config: DbFolderConfig; rows: RowData[] }> {
