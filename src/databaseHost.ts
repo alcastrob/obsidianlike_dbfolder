@@ -79,6 +79,44 @@ export abstract class DatabaseHost {
     // no-op by default
   }
 
+  /**
+   * Resolves an Obsidian-style [[wikilink]] target to a note and opens it, the same
+   * way clicking a wikilink in Obsidian does: by unique filename anywhere in the
+   * workspace, falling back to a picker when more than one note matches.
+   */
+  private async openWikilink(rawTarget: string): Promise<void> {
+    const target = rawTarget.trim().replace(/\.md$/i, "");
+    if (!target) return;
+    const targetName = target.split("/").pop() ?? target;
+
+    const allNotes = await vscode.workspace.findFiles("**/*.md");
+    const byPath = allNotes.filter((uri) => {
+      const rel = vscode.workspace.asRelativePath(uri).replace(/\.md$/i, "").replace(/\\/g, "/");
+      return rel === target || rel.endsWith(`/${target}`);
+    });
+    const candidates =
+      byPath.length > 0
+        ? byPath
+        : allNotes.filter((uri) => path.basename(uri.fsPath, ".md").toLowerCase() === targetName.toLowerCase());
+
+    if (candidates.length === 0) {
+      this.getWebview().postMessage({ type: "error", message: `No note found for link "${rawTarget}".` });
+      return;
+    }
+
+    let uri = candidates[0];
+    if (candidates.length > 1) {
+      const picked = await vscode.window.showQuickPick(
+        candidates.map((c) => ({ label: vscode.workspace.asRelativePath(c), uri: c })),
+        { placeHolder: `Multiple notes match "${rawTarget}" — choose one` }
+      );
+      if (!picked) return;
+      uri = picked.uri;
+    }
+
+    await vscode.commands.executeCommand("vscode.open", uri, { preview: false });
+  }
+
   protected async buildSnapshot(): Promise<DatabaseSnapshot> {
     const before = JSON.stringify({ columns: this.config.columns, views: this.config.views });
     const { config, rows } = await this.resolveRows(this.config);
@@ -171,6 +209,9 @@ export abstract class DatabaseHost {
           // default for *.md). vscode.open instead resolves the same way a
           // double-click in the Explorer would, respecting that association.
           await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(msg.filePath), { preview: false });
+          return;
+        case "openWikilink":
+          await this.openWikilink(msg.target);
           return;
         case "addView":
           await this.mutateConfig({ ...this.config, views: [...this.config.views, msg.view] });

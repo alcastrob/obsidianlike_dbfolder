@@ -255,6 +255,12 @@ input, select {
 }
 .cell-filelink:hover { text-decoration: underline; }
 
+.wikilink {
+  cursor: pointer;
+  color: var(--vscode-textLink-foreground, #3794ff);
+}
+.wikilink:hover { text-decoration: underline; }
+
 .tag-chip {
   display: inline-block;
   padding: 1px 8px;

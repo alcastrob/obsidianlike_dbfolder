@@ -130,6 +130,7 @@ export type WebviewToHostMessage =
   | { type: "addRow"; fileName: string }
   | { type: "deleteRow"; filePath: string }
   | { type: "openRow"; filePath: string }
+  | { type: "openWikilink"; target: string }
   | { type: "addView"; view: ViewDef }
   | { type: "updateView"; view: ViewDef }
   | { type: "deleteView"; viewId: string }
