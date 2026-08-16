@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   CellSize,
   ColumnDef,
@@ -13,7 +13,7 @@ import {
   ViewDef,
 } from "../../core/types";
 import { countFilterConditions, normalizeFilterGroup } from "../../core/query";
-import { post } from "../vscodeApi";
+import { onMessage, post } from "../vscodeApi";
 
 const TYPE_OPTIONS: PropertyType[] = [
   "text",
@@ -61,9 +61,16 @@ export function ColumnsMenu({ snapshot }: { snapshot: DatabaseSnapshot }): JSX.E
         <div className="popover wide" onMouseLeave={close}>
           <div className="menu-list">
             {snapshot.config.columns.map((col) => (
-              <div key={col.key} className="menu-row">
+              <div key={col.key} className={"menu-row" + (col.hidden ? " col-hidden" : "")}>
                 <span className="col-label">{col.label}</span>
                 <span className="col-type">{col.type}</span>
+                <button
+                  className="icon-btn"
+                  title={col.hidden ? "Show column" : "Hide column"}
+                  onClick={() => post({ type: "updateColumn", column: { ...col, hidden: !col.hidden } })}
+                >
+                  {col.hidden ? "🚫" : "👁"}
+                </button>
                 <button
                   className="icon-btn"
                   title="Delete column"
@@ -343,13 +350,30 @@ export function SortMenu({
  * Not based on the original plugin's actual dialog (no way to see it here) -
  * built from the config fields the parser already understands.
  */
-function DatabaseSourceSection({ sourceInfo }: { sourceInfo: DatabaseSourceInfo }): JSX.Element {
+function DatabaseSourceSection({
+  sourceInfo,
+  onDirtyChange,
+}: {
+  sourceInfo: DatabaseSourceInfo;
+  onDirtyChange: (dirty: boolean) => void;
+}): JSX.Element {
   const [mode, setMode] = useState<DatabaseSourceInfo["mode"]>(sourceInfo.mode);
   const [folderPath, setFolderPath] = useState(sourceInfo.folderPath ?? "");
   const [recursive, setRecursive] = useState(Boolean(sourceInfo.recursive));
   const [queryFilter, setQueryFilter] = useState(sourceInfo.queryFilter ?? "");
   const [templatePath, setTemplatePath] = useState(sourceInfo.templatePath ?? "");
   const [dirty, setDirty] = useState(false);
+  // Query validation is a host round-trip (it needs the dataview extension), so we track
+  // whether the *current* queryFilter text has been confirmed valid, separately from any
+  // in-flight check, so an edit after a passing check re-blocks Save until re-validated.
+  const [queryError, setQueryError] = useState<string | null>(null);
+  const [validating, setValidating] = useState(false);
+  const [validatedQuery, setValidatedQuery] = useState<string | null>(
+    sourceInfo.mode === "query" ? sourceInfo.queryFilter ?? "" : null
+  );
+  const queryFilterRef = useRef(queryFilter);
+  queryFilterRef.current = queryFilter;
+  const pendingSaveRef = useRef(false);
 
   useEffect(() => {
     if (dirty) return; // don't clobber in-progress edits when a new snapshot arrives
@@ -361,24 +385,62 @@ function DatabaseSourceSection({ sourceInfo }: { sourceInfo: DatabaseSourceInfo 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceInfo.mode, sourceInfo.folderPath, sourceInfo.recursive, sourceInfo.queryFilter, sourceInfo.templatePath]);
 
+  useEffect(() => {
+    return onMessage((msg) => {
+      if (msg.type !== "queryValidation") return;
+      setValidating(false);
+      if (msg.ok) {
+        setQueryError(null);
+        setValidatedQuery(queryFilterRef.current);
+        if (pendingSaveRef.current) {
+          pendingSaveRef.current = false;
+          doSave(queryFilterRef.current);
+        }
+      } else {
+        setQueryError(msg.message ?? "Invalid query.");
+        pendingSaveRef.current = false;
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const markDirty = <T,>(setter: (v: T) => void) => (v: T) => {
     setter(v);
     setDirty(true);
+    onDirtyChange(true);
   };
 
-  const save = () => {
+  const validateQueryNow = () => {
+    if (mode !== "query") return;
+    setValidating(true);
+    post({ type: "validateQuery", queryFilter: queryFilter.trim() });
+  };
+
+  const doSave = (queryFilterToSave: string) => {
     post({
       type: "updateDatabaseSource",
       source: {
         mode,
         folderPath: folderPath.trim() || undefined,
         recursive,
-        queryFilter: queryFilter.trim() || undefined,
+        queryFilter: queryFilterToSave.trim() || undefined,
         templatePath: templatePath.trim() || undefined,
       },
     });
     setDirty(false);
+    onDirtyChange(false);
   };
+
+  const save = () => {
+    if (mode === "query" && validatedQuery !== queryFilter) {
+      pendingSaveRef.current = true;
+      validateQueryNow();
+      return;
+    }
+    doSave(queryFilter);
+  };
+
+  const saveDisabled = !dirty || validating || (mode === "query" && Boolean(queryError));
 
   return (
     <div className="db-source-section">
@@ -412,10 +474,16 @@ function DatabaseSourceSection({ sourceInfo }: { sourceInfo: DatabaseSourceInfo 
             <textarea
               rows={4}
               value={queryFilter}
-              onChange={(e) => markDirty(setQueryFilter)(e.target.value)}
+              onChange={(e) => {
+                markDirty(setQueryFilter)(e.target.value);
+                setQueryError(null);
+              }}
+              onBlur={validateQueryNow}
               placeholder='FROM "folder" WHERE property = "value"'
             />
           </label>
+          {validating && <div className="menu-hint">Checking query…</div>}
+          {!validating && queryError && <div className="menu-error">{queryError}</div>}
           <label className="menu-row">
             <span>New notes folder</span>
             <input
@@ -434,7 +502,7 @@ function DatabaseSourceSection({ sourceInfo }: { sourceInfo: DatabaseSourceInfo 
           placeholder="e.g. Templates/New topic.md (optional)"
         />
       </label>
-      <button onClick={save} disabled={!dirty}>
+      <button onClick={save} disabled={saveDisabled}>
         Save source
       </button>
     </div>
@@ -443,7 +511,13 @@ function DatabaseSourceSection({ sourceInfo }: { sourceInfo: DatabaseSourceInfo 
 
 /** Database-level settings (name, description, cell size, sticky first column) - apply
  *  regardless of which view is active, matching the real plugin's per-database dialog. */
-function DatabaseMetaSection({ snapshot }: { snapshot: DatabaseSnapshot }): JSX.Element {
+function DatabaseMetaSection({
+  snapshot,
+  onDirtyChange,
+}: {
+  snapshot: DatabaseSnapshot;
+  onDirtyChange: (dirty: boolean) => void;
+}): JSX.Element {
   const [name, setName] = useState(snapshot.config.name ?? "");
   const [description, setDescription] = useState(snapshot.config.description ?? "");
   const [cellSize, setCellSize] = useState<CellSize>(snapshot.config.cellSize ?? "normal");
@@ -462,6 +536,7 @@ function DatabaseMetaSection({ snapshot }: { snapshot: DatabaseSnapshot }): JSX.
   const markDirty = <T,>(setter: (v: T) => void) => (v: T) => {
     setter(v);
     setDirty(true);
+    onDirtyChange(true);
   };
 
   const save = () => {
@@ -473,6 +548,7 @@ function DatabaseMetaSection({ snapshot }: { snapshot: DatabaseSnapshot }): JSX.
       stickyFirstColumn,
     });
     setDirty(false);
+    onDirtyChange(false);
   };
 
   return (
@@ -523,6 +599,14 @@ export function ViewSettingsMenu({
 }): JSX.Element {
   const [open, toggle, close] = useToggle();
   const selectColumns = snapshot.config.columns.filter((c) => c.type === "select" || c.type === "multiSelect");
+  // Both sub-sections below use a local-edit-then-explicit-Save pattern; if the mouse
+  // wanders off the popover mid-edit we must not unmount it (and lose those edits) the
+  // way a plain onMouseLeave={close} would.
+  const [metaDirty, setMetaDirty] = useState(false);
+  const [sourceDirty, setSourceDirty] = useState(false);
+  const closeUnlessDirty = () => {
+    if (!metaDirty && !sourceDirty) close();
+  };
 
   return (
     <div className="menu-container">
@@ -530,8 +614,11 @@ export function ViewSettingsMenu({
         ⚙
       </button>
       {open && (
-        <div className="popover wide" onMouseLeave={close}>
-          <DatabaseMetaSection snapshot={snapshot} />
+        <div className="popover wide" onMouseLeave={closeUnlessDirty}>
+          {(metaDirty || sourceDirty) && (
+            <div className="menu-hint">Unsaved changes — save or discard before this closes.</div>
+          )}
+          <DatabaseMetaSection snapshot={snapshot} onDirtyChange={setMetaDirty} />
           <label className="menu-row">
             <span>View name</span>
             <input
@@ -591,7 +678,9 @@ export function ViewSettingsMenu({
               />
             </label>
           )}
-          {snapshot.sourceInfo && <DatabaseSourceSection sourceInfo={snapshot.sourceInfo} />}
+          {snapshot.sourceInfo && (
+            <DatabaseSourceSection sourceInfo={snapshot.sourceInfo} onDirtyChange={setSourceDirty} />
+          )}
           {snapshot.config.views.length > 1 && (
             <button
               className="danger"

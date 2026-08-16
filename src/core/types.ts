@@ -118,7 +118,8 @@ export interface DatabaseSnapshot {
 export type HostToWebviewMessage =
   | { type: "init"; snapshot: DatabaseSnapshot }
   | { type: "snapshot"; snapshot: DatabaseSnapshot }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "queryValidation"; ok: boolean; message?: string };
 
 export type WebviewToHostMessage =
   | { type: "ready" }
@@ -148,4 +149,5 @@ export type WebviewToHostMessage =
   | { type: "exportCsv"; columns: ColumnDef[]; rows: RowData[] }
   | { type: "importCsv" }
   | { type: "openRawSource" }
-  | { type: "refresh" };
+  | { type: "refresh" }
+  | { type: "validateQuery"; queryFilter: string };

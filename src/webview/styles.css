@@ -121,6 +121,10 @@ input, select {
   align-items: center;
   gap: 6px;
 }
+.menu-row.col-hidden .col-label, .menu-row.col-hidden .col-type {
+  opacity: 0.5;
+  font-style: italic;
+}
 .menu-row select, .menu-row input {
   flex: 1;
   min-width: 0;
@@ -174,6 +178,15 @@ input, select {
   font-size: 0.9em;
   opacity: 0.8;
 }
+.menu-hint {
+  font-size: 0.85em;
+  opacity: 0.7;
+  font-style: italic;
+}
+.menu-error {
+  font-size: 0.85em;
+  color: var(--vscode-errorForeground, #f14c4c);
+}
 .menu-col {
   display: flex;
   flex-direction: column;
@@ -220,7 +233,9 @@ input, select {
   position: sticky;
   top: 0;
   background: var(--vscode-editor-background);
-  cursor: grab;
+}
+.db-table th > * {
+  vertical-align: middle;
 }
 .db-table.cell-compact th, .db-table.cell-compact td { padding: 1px 4px; }
 .db-table.cell-wide th, .db-table.cell-wide td { padding: 10px 16px; }
@@ -230,11 +245,20 @@ input, select {
   background: var(--vscode-editor-background);
   z-index: 2;
 }
+.col-drag-handle {
+  cursor: grab;
+  opacity: 0.5;
+  margin-right: 2px;
+  user-select: none;
+}
+.col-drag-handle:active {
+  cursor: grabbing;
+}
 .col-header-input {
   border: none;
   background: transparent;
   font-weight: 600;
-  width: 100%;
+  width: calc(100% - 2em);
 }
 .col-type-badge {
   font-size: 0.75em;

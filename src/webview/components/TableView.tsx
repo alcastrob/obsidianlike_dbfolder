@@ -33,13 +33,15 @@ export function TableView({ snapshot, view, columns, rows }: ViewComponentProps)
           <tr>
             <th className="row-handle-col" />
             {columns.map((col) => (
-              <th
-                key={col.key}
-                draggable
-                onDragStart={() => setDragKey(col.key)}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={() => reorder(col.key)}
-              >
+              <th key={col.key} onDragOver={(e) => e.preventDefault()} onDrop={() => reorder(col.key)}>
+                <span
+                  className="col-drag-handle"
+                  draggable
+                  title="Drag to reorder"
+                  onDragStart={() => setDragKey(col.key)}
+                >
+                  ⋮⋮
+                </span>
                 <input
                   className="col-header-input"
                   defaultValue={col.label}

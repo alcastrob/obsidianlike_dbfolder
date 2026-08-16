@@ -78,6 +78,15 @@ export abstract class DatabaseHost {
   protected async openRawSource(): Promise<void> {
     // no-op by default
   }
+  /** Hook for subclasses that need to track a just-created row (e.g. a query-mode
+   *  database bridging the gap until the sibling dataview extension's own index of
+   *  the new file catches up). No-op by default. */
+  protected onRowCreated(_filePath: string): void {}
+  /** Checks whether a query-mode `WHERE` filter is well-formed before it's allowed to be
+   *  saved. Only note-backed databases have a query source; always valid otherwise. */
+  protected async validateQuery(_queryFilter: string): Promise<{ ok: boolean; message?: string }> {
+    return { ok: true };
+  }
 
   /**
    * Resolves an Obsidian-style [[wikilink]] target to a note and opens it, the same
@@ -193,6 +202,7 @@ export abstract class DatabaseHost {
           const template = await this.getNewRowTemplate();
           const frontmatter = template ? { ...defaults, ...template.data } : defaults;
           createNote(filePath, frontmatter, template?.content ?? "");
+          this.onRowCreated(filePath);
           await this.sendSnapshot();
           return;
         }
@@ -350,6 +360,11 @@ export abstract class DatabaseHost {
         case "refresh":
           await this.sendSnapshot();
           return;
+        case "validateQuery": {
+          const result = await this.validateQuery(msg.queryFilter);
+          this.getWebview().postMessage({ type: "queryValidation", ok: result.ok, message: result.message });
+          return;
+        }
       }
     } catch (err) {
       this.getWebview().postMessage({

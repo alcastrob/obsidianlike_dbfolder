@@ -95,6 +95,12 @@ class NoteDatabaseHost extends DatabaseHost {
   private workspaceRoot: string | undefined;
   /** Guards against the doc-change listener re-triggering off our own writes. */
   public isApplyingOwnEdit = false;
+  /** Query-mode row resolution goes through the sibling dataview extension's own
+   *  file index, which can lag behind a file we *just* created ourselves - the new
+   *  row would then be silently absent from the table until that index catches up.
+   *  Paths here are force-included on top of the query result and dropped once the
+   *  query naturally includes them (or once the file is gone). */
+  private pendingQueryRows = new Set<string>();
 
   constructor(private document: vscode.TextDocument, private webview: vscode.Webview, raw: LegacyDbFolderRaw) {
     super(legacyToInternalConfig(raw));
@@ -153,6 +159,15 @@ class NoteDatabaseHost extends DatabaseHost {
     };
   }
 
+  protected async validateQuery(queryFilter: string): Promise<{ ok: boolean; message?: string }> {
+    if (!queryFilter.trim()) return { ok: false, message: "Query cannot be empty." };
+    if (!this.workspaceRoot) {
+      return { ok: false, message: "Query-source databases require an open workspace folder." };
+    }
+    const resolution = await resolveQueryFiles(queryFilter, this.workspaceRoot);
+    return resolution.ok ? { ok: true } : { ok: false, message: resolution.message };
+  }
+
   protected async updateDatabaseSource(source: DatabaseSourceInfo): Promise<void> {
     const nextRaw: LegacyDbFolderRaw = {
       ...this.raw,
@@ -198,7 +213,28 @@ class NoteDatabaseHost extends DatabaseHost {
     if (!resolution.ok) {
       throw new Error(resolution.message);
     }
-    return buildRowsFromFiles(resolution.files, config);
+    return buildRowsFromFiles(this.withPendingQueryRows(resolution.files), config);
+  }
+
+  /** Reconciles `pendingQueryRows` against a freshly-resolved query file list: drops
+   *  entries the query now includes on its own (index caught up) or that no longer
+   *  exist on disk, and force-includes any still-pending ones that are missing. */
+  private withPendingQueryRows(files: string[]): string[] {
+    if (this.pendingQueryRows.size === 0) return files;
+    const known = new Set(files);
+    const forced: string[] = [];
+    for (const p of this.pendingQueryRows) {
+      if (known.has(p) || !fs.existsSync(p)) {
+        this.pendingQueryRows.delete(p);
+      } else {
+        forced.push(p);
+      }
+    }
+    return forced.length ? [...files, ...forced] : files;
+  }
+
+  protected onRowCreated(filePath: string): void {
+    this.pendingQueryRows.add(filePath);
   }
 
   protected async persistConfig(config: DbFolderConfig): Promise<void> {
