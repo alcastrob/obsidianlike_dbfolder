@@ -12,7 +12,12 @@ import {
   SortRule,
   ViewDef,
 } from "../../core/types";
-import { countFilterConditions, normalizeFilterGroup } from "../../core/query";
+import {
+  countFilterConditions,
+  isColumnVisibleInView,
+  normalizeFilterGroup,
+  toggleColumnVisibilityInView,
+} from "../../core/query";
 import { onMessage, post } from "../vscodeApi";
 
 const TYPE_OPTIONS: PropertyType[] = [
@@ -31,7 +36,7 @@ function useToggle(): [boolean, () => void, () => void] {
   return [open, () => setOpen((s) => !s), () => setOpen(false)];
 }
 
-export function ColumnsMenu({ snapshot }: { snapshot: DatabaseSnapshot }): JSX.Element {
+export function ColumnsMenu({ snapshot, view }: { snapshot: DatabaseSnapshot; view: ViewDef }): JSX.Element {
   const [open, toggle, close] = useToggle();
   const [name, setName] = useState("");
   const [type, setType] = useState<PropertyType>("text");
@@ -54,19 +59,41 @@ export function ColumnsMenu({ snapshot }: { snapshot: DatabaseSnapshot }): JSX.E
     setOptions("");
   };
 
+  // hiddenColumnKeys is per-view (only affects `view`) and, once set, is authoritative for
+  // that view - ColumnDef.hidden (global) is only a fallback for views that haven't been
+  // customized yet. See core/query.ts's isColumnVisibleInView/toggleColumnVisibilityInView
+  // and CLAUDE.md's "Column visibility" note.
+  const toggleInView = (key: string) => {
+    post({
+      type: "updateView",
+      view: { ...view, hiddenColumnKeys: toggleColumnVisibilityInView(snapshot.config.columns, view, key) },
+    });
+  };
+
   return (
     <div className="menu-container">
-      <button onClick={toggle}>Columns</button>
+      <button title="Show, hide, reorder or delete columns" onClick={toggle}>Columns</button>
       {open && (
         <div className="popover wide" onMouseLeave={close}>
           <div className="menu-list">
             {snapshot.config.columns.map((col) => (
-              <div key={col.key} className={"menu-row" + (col.hidden ? " col-hidden" : "")}>
-                <span className="col-label">{col.label}</span>
+              <div key={col.key} className={"menu-row" + (isColumnVisibleInView(col, view) ? "" : " col-hidden")}>
+                <label className="col-label" title={`Show/hide "${col.label}" in the "${view.name}" view only`}>
+                  <input
+                    type="checkbox"
+                    checked={isColumnVisibleInView(col, view)}
+                    onChange={() => toggleInView(col.key)}
+                  />
+                  {col.label}
+                </label>
                 <span className="col-type">{col.type}</span>
                 <button
                   className="icon-btn"
-                  title={col.hidden ? "Show column" : "Hide column"}
+                  title={
+                    col.hidden
+                      ? "Show this column by default in views that haven't customized it"
+                      : "Hide this column by default in views that haven't customized it"
+                  }
                   onClick={() => post({ type: "updateColumn", column: { ...col, hidden: !col.hidden } })}
                 >
                   {col.hidden ? "🚫" : "👁"}
@@ -97,7 +124,9 @@ export function ColumnsMenu({ snapshot }: { snapshot: DatabaseSnapshot }): JSX.E
                 onChange={(e) => setOptions(e.target.value)}
               />
             )}
-            <button onClick={addColumn}>Add property</button>
+            <button title="Add a new property/column with this name and type" onClick={addColumn}>
+              Add property
+            </button>
           </div>
           <div className="menu-add-form">
             <button
@@ -159,7 +188,7 @@ function ConditionRow({
       {condition.operator !== "isEmpty" && condition.operator !== "isNotEmpty" && (
         <input value={condition.value ?? ""} onChange={(e) => onChange({ ...condition, value: e.target.value })} />
       )}
-      <button className="icon-btn" onClick={onRemove}>
+      <button className="icon-btn" title="Remove this filter condition" onClick={onRemove}>
         ✕
       </button>
     </div>
@@ -231,7 +260,7 @@ function FilterGroupEditor({
             <div key={child.id} className="filter-subgroup">
               <div className="filter-subgroup-header">
                 <span className="menu-section-title">Group</span>
-                <button className="icon-btn" onClick={() => removeChild(idx)}>
+                <button className="icon-btn" title="Remove this filter group" onClick={() => removeChild(idx)}>
                   ✕
                 </button>
               </div>
@@ -241,8 +270,8 @@ function FilterGroupEditor({
         )}
       </div>
       <div className="filter-group-actions">
-        <button onClick={addCondition}>+ Add filter</button>
-        <button onClick={addGroup}>+ Add filter group</button>
+        <button title="Add a new filter condition" onClick={addCondition}>+ Add filter</button>
+        <button title="Add a nested group of filters (its own AND/OR)" onClick={addGroup}>+ Add filter group</button>
       </div>
     </div>
   );
@@ -265,7 +294,9 @@ export function FilterMenu({
 
   return (
     <div className="menu-container">
-      <button onClick={toggle}>Filter{count > 0 ? ` (${count})` : ""}</button>
+      <button title="Filter which rows are shown in this view" onClick={toggle}>
+        Filter{count > 0 ? ` (${count})` : ""}
+      </button>
       {open && (
         <div className="popover wide" onMouseLeave={close}>
           <FilterGroupEditor group={filterGroup} columns={snapshot.config.columns} onChange={updateFilters} depth={0} />
@@ -296,7 +327,9 @@ export function SortMenu({
 
   return (
     <div className="menu-container">
-      <button onClick={toggle}>Sort{view.sorts.length > 0 ? ` (${view.sorts.length})` : ""}</button>
+      <button title="Sort the rows in this view" onClick={toggle}>
+        Sort{view.sorts.length > 0 ? ` (${view.sorts.length})` : ""}
+      </button>
       {open && (
         <div className="popover wide" onMouseLeave={close}>
           <div className="menu-list">
@@ -329,6 +362,7 @@ export function SortMenu({
                 </select>
                 <button
                   className="icon-btn"
+                  title="Remove this sort rule"
                   onClick={() => updateSorts(view.sorts.filter((_, i) => i !== idx))}
                 >
                   ✕
@@ -336,7 +370,7 @@ export function SortMenu({
               </div>
             ))}
           </div>
-          <button onClick={addSort}>+ Add sort</button>
+          <button title="Add another sort rule" onClick={addSort}>+ Add sort</button>
         </div>
       )}
     </div>
@@ -502,7 +536,11 @@ function DatabaseSourceSection({
           placeholder="e.g. Templates/New topic.md (optional)"
         />
       </label>
-      <button onClick={save} disabled={saveDisabled}>
+      <button
+        title="Save the database source (blocked while a query is unvalidated or invalid)"
+        onClick={save}
+        disabled={saveDisabled}
+      >
         Save source
       </button>
     </div>
@@ -583,7 +621,7 @@ function DatabaseMetaSection({
           onChange={(e) => markDirty(setStickyFirstColumn)(e.target.checked)}
         />
       </label>
-      <button onClick={save} disabled={!dirty}>
+      <button title="Save these database settings" onClick={save} disabled={!dirty}>
         Save
       </button>
     </div>
@@ -684,6 +722,7 @@ export function ViewSettingsMenu({
           {snapshot.config.views.length > 1 && (
             <button
               className="danger"
+              title="Permanently delete this view (other views are unaffected)"
               onClick={() => post({ type: "deleteView", viewId: view.id })}
             >
               Delete this view

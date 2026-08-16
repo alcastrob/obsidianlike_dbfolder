@@ -169,6 +169,20 @@ class NoteDatabaseHost extends DatabaseHost {
   }
 
   protected async updateDatabaseSource(source: DatabaseSourceInfo): Promise<void> {
+    // The webview's own Save-source flow already blocks this in the common case (see
+    // ToolbarMenus.tsx's validatedQuery/pendingSaveRef dance), but that's a UI nicety,
+    // not the actual guarantee - it can be beaten by a fast click, and this handler is
+    // reachable by any WebviewToHostMessage regardless of which UI state produced it.
+    // Re-validate here so an invalid query can never be written into the note: once
+    // persisted, every subsequent resolveRows() (including the next "ready") would
+    // throw on this exact query, permanently breaking the database until someone edits
+    // the raw yaml:dbfolder block by hand.
+    if (source.mode === "query") {
+      const validation = await this.validateQuery(source.queryFilter ?? "");
+      if (!validation.ok) {
+        throw new Error(validation.message ?? "Invalid query — source was not saved.");
+      }
+    }
     const nextRaw: LegacyDbFolderRaw = {
       ...this.raw,
       config: {
