@@ -42,10 +42,28 @@ export function buildWebviewHtml(webview: vscode.Webview, extensionUri: vscode.U
  * only need to say how rows are resolved and how config changes get persisted.
  */
 export abstract class DatabaseHost {
+  // Tracks every live host so the `mdDbFolder.tableFontFamily` setting (see
+  // extension.ts's onDidChangeConfiguration listener) can push a fresh snapshot to
+  // every open webview immediately, instead of only taking effect on next reopen.
+  private static instances = new Set<DatabaseHost>();
+
+  static refreshAllForSettingsChange(): void {
+    for (const instance of DatabaseHost.instances) {
+      void instance.sendSnapshot();
+    }
+  }
+
   protected config: DbFolderConfig;
 
   constructor(initialConfig: DbFolderConfig) {
     this.config = initialConfig;
+    DatabaseHost.instances.add(this);
+  }
+
+  /** Subclasses must call this from their own dispose handling, or this host leaks
+   *  in the registry above (and keeps receiving settings-change snapshot pushes). */
+  protected unregister(): void {
+    DatabaseHost.instances.delete(this);
   }
 
   protected abstract getWebview(): vscode.Webview;
@@ -135,7 +153,14 @@ export abstract class DatabaseHost {
       await this.persistConfig(this.config);
       this.onConfigPersisted();
     }
-    return { folderPath: this.getRowCreationFolder() ?? "", config: this.config, rows, sourceInfo: this.getSourceInfo() };
+    const tableFontFamily = vscode.workspace.getConfiguration("mdDbFolder").get<string>("tableFontFamily")?.trim() || undefined;
+    return {
+      folderPath: this.getRowCreationFolder() ?? "",
+      config: this.config,
+      rows,
+      sourceInfo: this.getSourceInfo(),
+      tableFontFamily,
+    };
   }
 
   async sendSnapshot(): Promise<void> {

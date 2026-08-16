@@ -65,7 +65,17 @@
         "selector": [{ "filenamePattern": "*.md" }],
         "priority": "option"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Obsidian like DB Folder",
+      "properties": {
+        "mdDbFolder.tableFontFamily": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "CSS `font-family` used for the Table view (e.g. `'Fira Code', monospace` or `Georgia, serif`). Applies to every database this extension renders. Leave empty to follow VS Code's editor font (`editor.fontFamily`)."
+        }
+      }
+    }
   },
   "scripts": {
     "compile": "node esbuild.js",

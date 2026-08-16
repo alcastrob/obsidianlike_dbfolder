@@ -112,6 +112,9 @@ export interface DatabaseSnapshot {
   config: DbFolderConfig;
   rows: RowData[];
   sourceInfo?: DatabaseSourceInfo;
+  /** From the VS Code setting `mdDbFolder.tableFontFamily` (Settings > Extensions), not
+   *  part of the per-database config — applies to every table this extension renders. */
+  tableFontFamily?: string;
 }
 
 // ---- Webview <-> Extension message protocol ----

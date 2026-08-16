@@ -85,6 +85,7 @@ class DatabaseNoteEditorProvider implements vscode.CustomTextEditorProvider {
       messageSub.dispose();
       docChangeSub.dispose();
       watcherSub?.dispose();
+      host.dispose();
     });
   }
 }
@@ -107,6 +108,10 @@ class NoteDatabaseHost extends DatabaseHost {
     this.raw = raw;
     this.noteDir = path.dirname(document.uri.fsPath);
     this.workspaceRoot = resolveWorkspaceRoot(document.uri);
+  }
+
+  dispose(): void {
+    this.unregister();
   }
 
   watchRowFolder(): vscode.Disposable | undefined {

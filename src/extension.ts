@@ -4,6 +4,7 @@ import { DATABASE_NOTE_EDITOR_VIEW_TYPE, registerDatabaseNoteEditor } from "./da
 import { isDatabaseNote } from "./core/legacyDbFolder";
 import { clearViewingRaw, isViewingRaw, markViewingRaw } from "./rawViewState";
 import { openGlobalSettingsPanel } from "./globalSettingsPanel";
+import { DatabaseHost } from "./databaseHost";
 
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
@@ -32,6 +33,12 @@ export function activate(context: vscode.ExtensionContext): void {
       openGlobalSettingsPanel(context, vaultRoot);
     }),
     registerDatabaseNoteEditor(context),
+    // Applies to every open table immediately, instead of only on next reopen.
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("mdDbFolder.tableFontFamily")) {
+        DatabaseHost.refreshAllForSettingsChange();
+      }
+    }),
     // onDidOpenTextDocument only fires the *first* time a document loads into
     // memory - clicking an already-open database note again in the Explorer
     // doesn't refire it (VS Code reuses the same TextDocument), so a second

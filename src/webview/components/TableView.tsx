@@ -25,10 +25,11 @@ export function TableView({ snapshot, view, columns, rows }: ViewComponentProps)
   const tableClassName = ["db-table", cellSizeClass, snapshot.config.stickyFirstColumn ? "sticky-first-col" : ""]
     .filter(Boolean)
     .join(" ");
+  const fontFamily = snapshot.tableFontFamily?.trim();
 
   return (
     <div className="table-scroll">
-      <table className={tableClassName}>
+      <table className={tableClassName} style={fontFamily ? { fontFamily } : undefined}>
         <thead>
           <tr>
             <th className="row-handle-col" />

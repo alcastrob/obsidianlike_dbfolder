@@ -83,5 +83,6 @@ export class DbFolderPanel extends DatabaseHost {
   private dispose(): void {
     panelsByFolder.delete(this.folderPath);
     this.disposables.forEach((d) => d.dispose());
+    this.unregister();
   }
 }
