@@ -92,6 +92,7 @@ export function removeColumn(config: DbFolderConfig, columnKey: string): DbFolde
     views: config.views.map((v) => ({
       ...v,
       columnOrder: v.columnOrder.filter((k) => k !== columnKey),
+      hiddenColumnKeys: v.hiddenColumnKeys?.filter((k) => k !== columnKey),
       filters: removeColumnFromFilterGroup(v.filters, columnKey),
       sorts: v.sorts.filter((s) => s.columnKey !== columnKey),
       groupByColumnKey: v.groupByColumnKey === columnKey ? undefined : v.groupByColumnKey,

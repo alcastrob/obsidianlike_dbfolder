@@ -70,6 +70,7 @@ export interface ViewDef {
   name: string;
   type: ViewType;
   columnOrder: string[]; // column keys, in display order
+  hiddenColumnKeys?: string[]; // column keys hidden in THIS view only; distinct from ColumnDef.hidden (hidden everywhere)
   filters: FilterGroup; // root group; nested groups combine with AND/OR
   sorts: SortRule[];
   groupByColumnKey?: string; // used by board view (must be select type); optional grouping for others

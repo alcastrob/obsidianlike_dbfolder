@@ -180,7 +180,7 @@ function buildHtml(data: DbFolderGlobalData, webview: vscode.Webview): string {
   <p class="intro">Shared, vault-wide defaults stored in <code>.obsidian/plugins/dbfolder/data.json</code> — the same file the real Obsidian dbfolder plugin uses, so both stay in sync against this vault. "New database defaults" seed every database you create from scratch; each one can still override its own settings afterward.</p>
   ${sectionsHtml}
   <div>
-    <button id="save">Save</button>
+    <button id="save" title="Write these vault-wide settings to .obsidian/plugins/dbfolder/data.json">Save</button>
     <span id="status"></span>
   </div>
   <script nonce="${nonce}">

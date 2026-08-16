@@ -56,7 +56,19 @@ export async function resolveQueryFiles(
     };
   }
 
-  const result = api.runQuery(`LIST ${queryFilter}`);
+  // api.runQuery() is expected to report a malformed query via a { type: "ERROR" }
+  // result, but a hand-rolled query parser throwing a plain JS exception on bad syntax
+  // instead is exactly the kind of thing that's easy to regress on the other extension's
+  // side - and an uncaught throw here would blow past validateQuery()'s caller (the
+  // "validateQuery" case in databaseHost.ts) as an unhandled rejection, turning what
+  // should be an inline "invalid query" message into a fatal, whole-app {type:"error"}
+  // with no way back short of reloading the tab. Treat a throw the same as an ERROR result.
+  let result: QueryResultLike;
+  try {
+    result = api.runQuery(`LIST ${queryFilter}`);
+  } catch (err) {
+    return { ok: false, reason: "query-error", message: err instanceof Error ? err.message : String(err) };
+  }
   if (result.type === "ERROR") {
     return { ok: false, reason: "query-error", message: result.message };
   }

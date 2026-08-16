@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { DatabaseSnapshot, RowData, ViewDef } from "../core/types";
-import { applyFilters, applySorts } from "../core/query";
+import { applyFilters, applySorts, isColumnVisibleInView } from "../core/query";
 import { onMessage, post } from "./vscodeApi";
 import { Toolbar } from "./components/Toolbar";
 import { TableView } from "./components/TableView";
@@ -52,7 +52,9 @@ export function App(): JSX.Element {
 
   const columns = activeView.columnOrder
     .map((key) => snapshot.config.columns.find((c) => c.key === key))
-    .filter((c): c is NonNullable<typeof c> => Boolean(c) && !c!.hidden);
+    .filter(
+      (c): c is NonNullable<typeof c> => Boolean(c) && isColumnVisibleInView(c!, activeView)
+    );
 
   return (
     <div className="db-root">

@@ -57,17 +57,18 @@ export function Toolbar({
           <button
             key={v.id}
             className={"view-tab" + (v.id === activeView.id ? " active" : "")}
+            title={`Switch to the "${v.name}" view`}
             onClick={() => onSetActiveView(v.id)}
           >
             <span className="view-icon">{VIEW_ICONS[v.type]}</span> {v.name}
           </button>
         ))}
         <div className="view-tab-add">
-          <button onClick={() => setAddingView((s) => !s)}>+</button>
+          <button title="Add a new view" onClick={() => setAddingView((s) => !s)}>+</button>
           {addingView && (
             <div className="popover">
               {(["table", "board", "list", "gallery"] as ViewType[]).map((t) => (
-                <button key={t} onClick={() => addView(t)}>
+                <button key={t} title={`Add a new ${t} view`} onClick={() => addView(t)}>
                   {VIEW_ICONS[t]} {t}
                 </button>
               ))}
@@ -79,13 +80,14 @@ export function Toolbar({
         <div className="new-row-input">
           <input
             placeholder="New note name…"
+            title="Name for the new note (becomes the file name)"
             value={newRowName}
             onChange={(e) => setNewRowName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && submitNewRow()}
           />
-          <button onClick={submitNewRow}>+ New</button>
+          <button title="Create a new note with this name" onClick={submitNewRow}>+ New</button>
         </div>
-        <ColumnsMenu snapshot={snapshot} />
+        <ColumnsMenu snapshot={snapshot} view={activeView} />
         <FilterMenu snapshot={snapshot} view={activeView} />
         <SortMenu snapshot={snapshot} view={activeView} />
         <ViewSettingsMenu snapshot={snapshot} view={activeView} />

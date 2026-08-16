@@ -1,4 +1,33 @@
-import { FilterCondition, FilterGroup, FilterNode, RowData, SortRule } from "./types";
+import { ColumnDef, FilterCondition, FilterGroup, FilterNode, RowData, SortRule, ViewDef } from "./types";
+
+/**
+ * Whether `column` should render in `view`. `ColumnDef.hidden` is the legacy, global
+ * flag (matches the real plugin's per-column `isHidden`, and is what a view falls
+ * back to until it has an opinion of its own). Once a view's own `hiddenColumnKeys`
+ * exists it becomes the sole source of truth for THAT view - so toggling a column's
+ * global hidden flag afterward can no longer leak into a view that already made its
+ * own per-view choice for it. See `toggleColumnVisibilityInView`.
+ */
+export function isColumnVisibleInView(column: ColumnDef, view: ViewDef): boolean {
+  if (view.hiddenColumnKeys) return !view.hiddenColumnKeys.includes(column.key);
+  return !column.hidden;
+}
+
+/**
+ * Materializes a view's per-view hidden set the first time it's touched, snapshotting
+ * the *currently effective* hidden columns (global hidden, since the view has no
+ * per-view state yet) so the view's visible set doesn't visibly jump, then applies the
+ * toggle on top. After this the view is "graduated": its own hiddenColumnKeys is
+ * authoritative and no longer affected by the global hide/show toggle for columns it
+ * has an opinion on.
+ */
+export function toggleColumnVisibilityInView(allColumns: ColumnDef[], view: ViewDef, columnKey: string): string[] {
+  const base = view.hiddenColumnKeys ?? allColumns.filter((c) => c.hidden).map((c) => c.key);
+  const hidden = new Set(base);
+  if (hidden.has(columnKey)) hidden.delete(columnKey);
+  else hidden.add(columnKey);
+  return Array.from(hidden);
+}
 
 function toComparable(value: unknown): string | number {
   if (typeof value === "number") return value;
