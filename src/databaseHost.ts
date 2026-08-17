@@ -6,6 +6,20 @@ import { writeFrontmatter, createNote, readNote } from "./core/frontmatter";
 import { buildColumnFromValue, buildDefaultFrontmatter, coerceValueForType, normalizeRawValue } from "./core/propertyTypes";
 import { csvRowsToRecords, parseCsv, toCsv } from "./core/csv";
 import { DatabaseSnapshot, DatabaseSourceInfo, DbFolderConfig, RowData, WebviewToHostMessage } from "./core/types";
+import { parseWholeWikilink } from "./core/wikilinks";
+import { resolveCoverText } from "./core/coverValue";
+
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|bmp)$/i;
+const IMAGE_GLOB = "**/*.{png,jpg,jpeg,gif,webp,svg,bmp}";
+
+/** A cover value that is nothing but a `[[wikilink]]` (optionally `![[embed]]` - Obsidian's
+ *  own image-embed syntax) whose target looks like an image file. Returns the raw target,
+ *  or undefined for anything else (plain text, a URL, prose containing a link, ...). */
+function wikilinkImageTarget(raw: string): string | undefined {
+  const trimmed = raw.trim();
+  const link = parseWholeWikilink(trimmed.startsWith("!") ? trimmed.slice(1) : trimmed);
+  return link && IMAGE_EXT_RE.test(link.target) ? link.target : undefined;
+}
 
 export function getNonce(): string {
   let text = "";
@@ -24,7 +38,7 @@ export function buildWebviewHtml(webview: vscode.Webview, extensionUri: vscode.U
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="${styleUri}" />
   <title>${title}</title>
@@ -144,6 +158,46 @@ export abstract class DatabaseHost {
     await vscode.commands.executeCommand("vscode.open", uri, { preview: false });
   }
 
+  /**
+   * Gallery view's cover column: when its value is a whole `[[wikilink]]`/`![[embed]]`
+   * pointing at an image file, resolve that file the same way `openWikilink` resolves a
+   * note link (by workspace-relative path, falling back to a unique basename match) and
+   * hand back a URI the webview is actually allowed to load. Plain text and http(s) URLs
+   * need none of this - the webview renders those directly - so this only runs, and only
+   * touches rows, when the currently active view is a gallery with a cover column set.
+   */
+  private async resolveCoverImages(rows: RowData[], columnKey: string): Promise<void> {
+    const targets = new Set<string>();
+    for (const row of rows) {
+      const text = resolveCoverText(row.values[columnKey]);
+      const target = text && wikilinkImageTarget(text);
+      if (target) targets.add(target);
+    }
+    if (targets.size === 0) return;
+
+    const allImages = await vscode.workspace.findFiles(IMAGE_GLOB);
+    const webview = this.getWebview();
+    const resolved = new Map<string, string>();
+    for (const target of targets) {
+      const targetName = target.split("/").pop() ?? target;
+      const byPath = allImages.filter((uri) => {
+        const rel = vscode.workspace.asRelativePath(uri).replace(/\\/g, "/");
+        return rel === target || rel.endsWith(`/${target}`);
+      });
+      const match =
+        byPath[0] ?? allImages.find((uri) => path.basename(uri.fsPath).toLowerCase() === targetName.toLowerCase());
+      if (match) resolved.set(target, webview.asWebviewUri(match).toString());
+    }
+    if (resolved.size === 0) return;
+
+    for (const row of rows) {
+      const text = resolveCoverText(row.values[columnKey]);
+      const target = text && wikilinkImageTarget(text);
+      const uri = target && resolved.get(target);
+      if (uri) row.coverImageUri = uri;
+    }
+  }
+
   protected async buildSnapshot(): Promise<DatabaseSnapshot> {
     const before = JSON.stringify({ columns: this.config.columns, views: this.config.views });
     const { config, rows } = await this.resolveRows(this.config);
@@ -152,6 +206,10 @@ export abstract class DatabaseHost {
     if (before !== after) {
       await this.persistConfig(this.config);
       this.onConfigPersisted();
+    }
+    const activeView = this.config.views.find((v) => v.id === this.config.activeViewId);
+    if (activeView?.type === "gallery" && activeView.coverColumnKey) {
+      await this.resolveCoverImages(rows, activeView.coverColumnKey);
     }
     const tableFontFamily = vscode.workspace.getConfiguration("mdDbFolder").get<string>("tableFontFamily")?.trim() || undefined;
     return {

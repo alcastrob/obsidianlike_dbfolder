@@ -95,6 +95,12 @@ export interface RowData {
   filePath: string; // absolute path
   fileName: string; // without extension
   values: Record<string, unknown>; // columnKey -> value (frontmatter values + synthetic file props)
+  /** Gallery view only: set by the host when the active view's cover column holds a
+   *  `[[wikilink]]`/`![[embed]]` to an image file it could resolve within the workspace,
+   *  already converted to a webview-loadable URI. The webview has no filesystem access
+   *  and can't do this resolution itself. Absent for plain-text or URL cover values -
+   *  those are rendered directly by the webview without host involvement. */
+  coverImageUri?: string;
 }
 
 // Present only for note-backed databases (a note with an embedded ```yaml:dbfolder

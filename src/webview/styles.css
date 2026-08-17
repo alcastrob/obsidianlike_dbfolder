@@ -382,6 +382,16 @@ input, select {
 }
 .gallery-cover img { width: 100%; height: 100%; object-fit: cover; }
 .gallery-cover-fallback { font-size: 2em; opacity: 0.4; }
+.gallery-cover-text {
+  padding: 8px;
+  text-align: center;
+  font-size: 0.9em;
+  opacity: 0.85;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
 .gallery-title { font-weight: 600; padding: 6px 8px 2px; }
 .gallery-props { padding: 0 8px 8px; display: flex; flex-direction: column; gap: 2px; }
 .gallery-prop { font-size: 0.85em; opacity: 0.8; }

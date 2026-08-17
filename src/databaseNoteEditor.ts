@@ -54,7 +54,13 @@ class DatabaseNoteEditorProvider implements vscode.CustomTextEditorProvider {
   resolveCustomTextEditor(document: vscode.TextDocument, webviewPanel: vscode.WebviewPanel): void {
     webviewPanel.webview.options = {
       enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, "dist")],
+      // Gallery cover images resolved from a [[wikilink]] (see DatabaseHost.resolveCoverImages)
+      // live in the workspace, not under the extension - the webview refuses to load an
+      // asWebviewUri() result whose source path isn't under one of these roots.
+      localResourceRoots: [
+        vscode.Uri.joinPath(this.context.extensionUri, "dist"),
+        ...(vscode.workspace.workspaceFolders?.map((f) => f.uri) ?? []),
+      ],
     };
     webviewPanel.webview.html = buildWebviewHtml(
       webviewPanel.webview,
