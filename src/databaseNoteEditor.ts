@@ -278,6 +278,13 @@ class NoteDatabaseHost extends DatabaseHost {
     this.isApplyingOwnEdit = true;
     try {
       await vscode.workspace.applyEdit(edit);
+      // Every mutation the webview makes (cell edit, row add, config/view change, ...)
+      // goes through here - without an explicit save the document is left dirty and
+      // VS Code never writes it to disk on its own. Save immediately so the database
+      // note behaves like every other write path in this extension (folder-mode
+      // config, row files), which persist synchronously without relying on the
+      // user's autoSave setting or a manual Ctrl+S.
+      await this.document.save();
     } finally {
       this.isApplyingOwnEdit = false;
     }
