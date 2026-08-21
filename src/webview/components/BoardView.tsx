@@ -1,28 +1,8 @@
 import React from "react";
 import { groupBy } from "../../core/query";
-import { parseWholeWikilink } from "../../core/wikilinks";
 import { post } from "../vscodeApi";
-import { Wikilink, renderWithWikilinks } from "./Wikilink";
+import { isBlankPropValue, renderPropValue } from "./Wikilink";
 import { ViewComponentProps } from "./ViewProps";
-
-/** Renders a card property value, turning [[wikilink]] syntax into clickable links —
- *  a whole array item that's nothing but a link renders as one (matching the tag-chip
- *  treatment in PropertyCell), everything else goes through the free-text wikilink scan. */
-function renderPropValue(v: unknown): React.ReactNode {
-  if (Array.isArray(v)) {
-    return v.map((item, i) => {
-      const str = String(item);
-      const link = parseWholeWikilink(str);
-      return (
-        <React.Fragment key={i}>
-          {i > 0 && ", "}
-          {link ? <Wikilink target={link.target} label={link.label} /> : str}
-        </React.Fragment>
-      );
-    });
-  }
-  return renderWithWikilinks(String(v));
-}
 
 export function BoardView({ snapshot, view, columns, rows }: ViewComponentProps): JSX.Element {
   const groupColumn = snapshot.config.columns.find((c) => c.key === view.groupByColumnKey);
@@ -80,7 +60,7 @@ export function BoardView({ snapshot, view, columns, rows }: ViewComponentProps)
                 <div className="board-card-title">{row.fileName}</div>
                 {cardColumns.map((c) => {
                   const v = row.values[c.key];
-                  if (v === undefined || v === null || v === "" || (Array.isArray(v) && v.length === 0)) return null;
+                  if (isBlankPropValue(v)) return null;
                   return (
                     <div key={c.key} className="board-card-prop">
                       <span className="board-card-prop-label">{c.label}:</span>{" "}

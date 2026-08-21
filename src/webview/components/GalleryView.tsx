@@ -3,6 +3,7 @@ import { post } from "../vscodeApi";
 import { ColumnDef, RowData } from "../../core/types";
 import { resolveCoverText } from "../../core/coverValue";
 import { parseWholeWikilink } from "../../core/wikilinks";
+import { isBlankPropValue, renderPropValue } from "./Wikilink";
 import { ViewComponentProps } from "./ViewProps";
 
 // A cover value renders one of three ways:
@@ -48,10 +49,10 @@ export function GalleryView({ snapshot, view, columns, rows }: ViewComponentProp
             <div className="gallery-props">
               {cardColumns.map((c) => {
                 const v = row.values[c.key];
-                if (v === undefined || v === "" || (Array.isArray(v) && v.length === 0)) return null;
+                if (isBlankPropValue(v)) return null;
                 return (
                   <div key={c.key} className="gallery-prop">
-                    <span className="gallery-prop-label">{c.label}:</span> {Array.isArray(v) ? v.join(", ") : String(v)}
+                    <span className="gallery-prop-label">{c.label}:</span> {renderPropValue(v)}
                   </div>
                 );
               })}
