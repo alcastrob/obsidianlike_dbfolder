@@ -253,10 +253,33 @@ export abstract class DatabaseHost {
           await this.mutateConfig(upsertColumn(this.config, msg.column));
           await this.sendSnapshot();
           return;
-        case "deleteColumn":
+        case "deleteColumn": {
+          // Deleting a column only makes the property disappear from config.columns; the
+          // frontmatter key itself is still on disk in every row currently shown, so the
+          // very next resolveRows() (buildRowsFromFiles auto-discovery) would silently
+          // re-add it as a "new" column - the bug this closes. Strip the key from every
+          // row this database currently displays (folder scan or query result) first.
+          // Computed types are never written to frontmatter in the first place (formula
+          // is derived, createdTime/modifiedTime/filePath mirror the synthetic $ctime/
+          // $mtime/$path props) - skip those, same as the CSV-import persistableTypes set
+          // above and the "updateCell" formula guard.
+          const col = this.config.columns.find((c) => c.key === msg.columnKey);
+          const computedTypes = new Set(["formula", "createdTime", "modifiedTime", "filePath"]);
+          if (!col || !computedTypes.has(col.type)) {
+            const { rows } = await this.resolveRows(this.config);
+            for (const row of rows) {
+              try {
+                writeFrontmatter(row.filePath, { [msg.columnKey]: undefined });
+              } catch {
+                // best-effort: a row that fails to update (e.g. deleted mid-operation)
+                // shouldn't block deleting the column from the rest.
+              }
+            }
+          }
           await this.mutateConfig(removeColumn(this.config, msg.columnKey));
           await this.sendSnapshot();
           return;
+        }
         case "reorderColumns": {
           const views = this.config.views.map((v) =>
             v.id === this.config.activeViewId ? { ...v, columnOrder: msg.columnOrder } : v

@@ -19,6 +19,7 @@ import {
   toggleColumnVisibilityInView,
 } from "../../core/query";
 import { onMessage, post } from "../vscodeApi";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 const TYPE_OPTIONS: PropertyType[] = [
   "text",
@@ -31,6 +32,11 @@ const TYPE_OPTIONS: PropertyType[] = [
   "formula",
 ];
 
+// Kept in sync with databaseHost.ts's deleteColumn handler: these types are never written
+// to frontmatter (formula is derived, createdTime/modifiedTime/filePath mirror the synthetic
+// $ctime/$mtime/$path props), so deleting one of them doesn't touch any document.
+const COMPUTED_TYPES = new Set<PropertyType>(["formula", "createdTime", "modifiedTime", "filePath"]);
+
 function useToggle(): [boolean, () => void, () => void] {
   const [open, setOpen] = useState(false);
   return [open, () => setOpen((s) => !s), () => setOpen(false)];
@@ -41,6 +47,7 @@ export function ColumnsMenu({ snapshot, view }: { snapshot: DatabaseSnapshot; vi
   const [name, setName] = useState("");
   const [type, setType] = useState<PropertyType>("text");
   const [options, setOptions] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<ColumnDef | null>(null);
 
   const addColumn = () => {
     const key = name.trim();
@@ -98,11 +105,7 @@ export function ColumnsMenu({ snapshot, view }: { snapshot: DatabaseSnapshot; vi
                 >
                   {col.hidden ? "🚫" : "👁"}
                 </button>
-                <button
-                  className="icon-btn"
-                  title="Delete column"
-                  onClick={() => post({ type: "deleteColumn", columnKey: col.key })}
-                >
+                <button className="icon-btn" title="Delete column" onClick={() => setPendingDelete(col)}>
                   ✕
                 </button>
               </div>
@@ -137,6 +140,22 @@ export function ColumnsMenu({ snapshot, view }: { snapshot: DatabaseSnapshot; vi
             </button>
           </div>
         </div>
+      )}
+      {pendingDelete && (
+        <ConfirmDialog
+          title={`Delete "${pendingDelete.label}"?`}
+          message={
+            COMPUTED_TYPES.has(pendingDelete.type)
+              ? `This removes the property from the list. "${pendingDelete.type}" values are computed, not stored in frontmatter, so no document is edited. This can't be undone.`
+              : `This removes the property from the list and deletes it from the frontmatter of all ${snapshot.rows.length} document(s) currently shown in this database (the ones matched by this database's folder or query). This can't be undone.`
+          }
+          confirmLabel="Delete property"
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => {
+            post({ type: "deleteColumn", columnKey: pendingDelete.key });
+            setPendingDelete(null);
+          }}
+        />
       )}
     </div>
   );
