@@ -174,6 +174,39 @@ const FILTER_OPERATORS: FilterOperator[] = [
   "lte",
 ];
 
+// Local-state input for a filter condition's value: typing only updates local state, and the
+// (expensive - triggers a full resolveRows(), which in query mode re-runs the dataview query
+// against every matching file) `updateView` post only fires on blur/Enter. Committing on every
+// keystroke made typing into a filter with many matching rows feel like it hung.
+function ConditionValueInput({
+  value,
+  onCommit,
+}: {
+  value: string;
+  onCommit: (next: string) => void;
+}): JSX.Element {
+  const [local, setLocal] = useState(value);
+  useEffect(() => {
+    setLocal(value);
+  }, [value]);
+  const commit = () => {
+    if (local !== value) onCommit(local);
+  };
+  return (
+    <input
+      value={local}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          commit();
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
 function ConditionRow({
   condition,
   columns,
@@ -205,7 +238,10 @@ function ConditionRow({
         ))}
       </select>
       {condition.operator !== "isEmpty" && condition.operator !== "isNotEmpty" && (
-        <input value={condition.value ?? ""} onChange={(e) => onChange({ ...condition, value: e.target.value })} />
+        <ConditionValueInput
+          value={condition.value ?? ""}
+          onCommit={(next) => onChange({ ...condition, value: next })}
+        />
       )}
       <button className="icon-btn" title="Remove this filter condition" onClick={onRemove}>
         ✕

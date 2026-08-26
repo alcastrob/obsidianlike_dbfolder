@@ -7,6 +7,13 @@ import { buildColumnFromValue, buildDefaultFrontmatter, coerceValueForType, norm
 import { csvRowsToRecords, parseCsv, toCsv } from "./core/csv";
 import { DatabaseSnapshot, DatabaseSourceInfo, DbFolderConfig, RowData, WebviewToHostMessage } from "./core/types";
 import { parseWholeWikilink } from "./core/wikilinks";
+import {
+  collectPlaceholderLabels,
+  substituteDatePlaceholdersInData,
+  substituteDatePlaceholdersInText,
+  substitutePlaceholdersInData,
+  substitutePlaceholdersInText,
+} from "./core/templatePrompts";
 import { resolveCoverText } from "./core/coverValue";
 
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|bmp)$/i;
@@ -304,10 +311,40 @@ export abstract class DatabaseHost {
           while (fs.existsSync(filePath)) {
             filePath = path.join(folder, `${safeName} ${++n}.md`);
           }
-          const defaults = { ...buildDefaultFrontmatter(this.config.columns), ...this.getNewRowDefaults() };
           const template = await this.getNewRowTemplate();
-          const frontmatter = template ? { ...defaults, ...template.data } : defaults;
-          createNote(filePath, frontmatter, template?.content ?? "");
+          let templateData = template?.data ?? {};
+          let templateContent = template?.content ?? "";
+          if (template) {
+            // <%date%>/<%date FORMAT%> is auto-filled, never asked about - must run before
+            // collectPlaceholderLabels() or "date ..." would be treated as a normal label.
+            const now = new Date();
+            templateContent = substituteDatePlaceholdersInText(templateContent, now);
+            templateData = substituteDatePlaceholdersInData(templateData, now);
+
+            const labels = collectPlaceholderLabels(templateContent, templateData);
+            if (labels.length > 0) {
+              const answers = new Map<string, string>();
+              for (const label of labels) {
+                const answer = await vscode.window.showInputBox({
+                  title: "New row from template",
+                  prompt: label,
+                  ignoreFocusOut: true,
+                });
+                // Escape (undefined) aborts row creation entirely rather than writing a
+                // note with unsubstituted <%...%> placeholders left in it.
+                if (answer === undefined) {
+                  void vscode.window.showInformationMessage("Row creation cancelled.");
+                  return;
+                }
+                answers.set(label, answer);
+              }
+              templateContent = substitutePlaceholdersInText(templateContent, answers);
+              templateData = substitutePlaceholdersInData(templateData, answers);
+            }
+          }
+          const defaults = { ...buildDefaultFrontmatter(this.config.columns), ...this.getNewRowDefaults() };
+          const frontmatter = template ? { ...defaults, ...templateData } : defaults;
+          createNote(filePath, frontmatter, templateContent);
           this.onRowCreated(filePath);
           await this.sendSnapshot();
           return;
